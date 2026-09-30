@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      # The whole runtime layer resolves by Maven coordinate: publish the loader (all
+      # publications, oml-native included — hence zig) and the plugin into mavenLocal,
+      # exactly the documented development loop, then build.
+      - uses: actions/checkout@v7
+        with:
+          repository: OhMyLoader/OhMyLoader
+          ref: main
+          path: OhMyLoader
+      - uses: actions/checkout@v7
+        with:
+          repository: OhMyLoader/OhMyLoaderGradle
+          ref: main
+          path: OhMyLoaderGradle
+      - uses: actions/setup-java@v6
+        with:
+          distribution: zulu
+          java-version: '27'
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.16.0
+      - uses: gradle/actions/setup-gradle@v6
+      - run: ./gradlew -p OhMyLoader publishToMavenLocal
+      - run: ./gradlew -p OhMyLoaderGradle publishToMavenLocal
+      - run: ./gradlew build
