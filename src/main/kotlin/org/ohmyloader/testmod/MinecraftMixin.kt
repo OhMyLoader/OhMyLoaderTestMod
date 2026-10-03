@@ -20,7 +20,6 @@ class MinecraftMixin {
     private var runTickCalls = 0
     private var renderFlagCalls = 0
     private var firstReturnCalls = 0
-    private var fpsLimitCalls = 0
     private var constructed = false
 
     /**
@@ -33,6 +32,7 @@ class MinecraftMixin {
      */
     @Inject(method = "<init>", at = At(At.CTOR_HEAD))
     fun onMinecraftConstructed(ci: CallbackInfo) {
+        E2E.hit("mixin.ctor_head")
         if (!constructed) {
             constructed = true
             println("[oml_testmod] Mixin: CTOR_HEAD anchor in effect (after constructor super())")
@@ -41,12 +41,14 @@ class MinecraftMixin {
 
     @Inject(method = "runTick", at = At(At.HEAD), cancellable = true)
     fun onRunTick(ci: CallbackInfo) {
+        E2E.hit("mixin.run_tick.head")
         runTickCalls++
         if (runTickCalls == 1) {
             println("[oml_testmod] Mixin: runTick HEAD injection in effect")
         }
         if (runTickCalls == 600) {
             println("[oml_testmod] Mixin: short-circuiting runTick once (game logic pauses for 1 tick, then resumes)")
+            E2E.hit("mixin.run_tick.cancel")
             ci.cancel()
         }
     }
@@ -70,6 +72,7 @@ class MinecraftMixin {
         // startup error
     )
     fun onRunTickWithRenderFlag(render: Boolean, ci: CallbackInfo) {
+        E2E.hit("mixin.run_tick.capture")
         renderFlagCalls++
         if (renderFlagCalls == 1) {
             println("[oml_testmod] Mixin: runTick argument capture in effect -- render=$render")
@@ -85,32 +88,10 @@ class MinecraftMixin {
      */
     @Inject(method = "runTick", at = At(value = At.RETURN, ordinal = 0))
     fun onRunTickFirstReturn(ci: CallbackInfo) {
+        E2E.hit("mixin.run_tick.return_ordinal")
         firstReturnCalls++
         if (firstReturnCalls == 1) {
             println("[oml_testmod] Mixin: @At(RETURN, ordinal = 0) in effect (before the first return)")
-        }
-    }
-
-    /**
-     * **Short-circuit with a value**: clamps the frame-rate limit to 60.
-     *
-     * `Minecraft.getLimitFramerate()` does not exist on 26.3 — the limit moved to
-     * `com.mojang.blaze3d.platform.FramerateLimitTracker` (see [FramerateLimitMixin]) — so this rule
-     * is a **soft miss**: with no `require`, the miss is a warning rather than a startup failure. It
-     * stays as the "cancellable handler on `Minecraft`" counterpart to the live rule, written in the
-     * same shape. `CallbackInfoReturnable.setReturnValue(v)` automatically cancels the target method:
-     * a matched target **directly returns 60** and its body never runs. Only the first 5 calls are
-     * clamped — that proves the value really reaches the caller without permanently masking the
-     * original read path.
-     */
-    @Inject(method = "getLimitFramerate", desc = "()I", at = At(At.HEAD), cancellable = true)
-    fun capFramerateLimit(ci: CallbackInfoReturnable<Int>) {
-        fpsLimitCalls++
-        if (fpsLimitCalls <= 5) {
-            if (fpsLimitCalls == 1) {
-                println("[oml_testmod] Mixin: short-circuit with value in effect (getLimitFramerate returns 60 directly)")
-            }
-            ci.setReturnValue(60)
         }
     }
 }

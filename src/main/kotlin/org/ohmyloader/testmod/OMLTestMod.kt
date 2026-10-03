@@ -42,15 +42,43 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider {
             overrideSpeed("minecraft:dirt", 4.0f)
         }
         println("[oml_testmod] declared item: $sword")
+        E2E.hit("content.declared")
     }
 
     override fun onInitialize(context: ModContext) {
         println("[oml_testmod] initialization complete: id=${context.id} name=${context.name} version=${context.version}")
 
+        // E2E runs (see E2E): the probes below end in a verdict the caller can fail on. The
+        // expectations are declared per side because over half of them can only be observed on one.
+        E2E.install()
+        E2E.expect("content.declared", "event.tick")
+        if (isServerSide()) {
+            E2E.expect("content.item_components")
+        } else {
+            // Deliberately not expected here, because a session that stops at the main menu does not
+            // reach them: `event.gui_open` needs a screen swap (observed when a world is joined) and
+            // `merge.overwrite_static_field` needs `getLaunchedVersion()`, which the title screen never
+            // asks for. They are still recorded when they do happen, so a wrong observation fails the
+            // run; only "must happen on every client run" is restricted to what really does.
+            E2E.expect(
+                "merge.shadow_this", "merge.ctor_init",
+                "inject.access_widening",
+                "mixin.ctor_head", "mixin.run_tick.head", "mixin.run_tick.capture",
+                "mixin.run_tick.return_ordinal",
+                "mixin.frame_limit.tail", "mixin.frame_limit.head",
+                "mixin.modify_constant", "mixin.modify_return_value", "mixin.modify_expression_value",
+                "pack.byid.blockstate", "pack.byid.model", "pack.byid.item_def", "pack.byid.texture",
+                "pack.byid.lang",
+                "pack.dir.blockstates", "pack.dir.models_block", "pack.dir.items",
+                "pack.dir.textures_block", "pack.dir.textures_particle", "pack.dir.lang",
+            )
+        }
+
         // the access-flag rewrite is done by the adapter's DSL rule; here it is observed from the mod side
         MergeProbe.reportAccessWidening()
 
         Events.CLIENT_TICK.register {
+            E2E.hit("event.tick")
             ticks++
             MergeProbe.reportResourceInjection()
             if (ticks % 200 == 0) {
@@ -60,6 +88,7 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider {
 
         // the dedicated server's main loop is a separate path, only received in server mode
         Events.SERVER_TICK.register {
+            E2E.hit("event.tick")
             serverTicks++
             // The dedicated server loads its server resources during boot, which is when vanilla
             // bakes the item holders' component maps — the first point where components are
@@ -81,6 +110,7 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider {
         }
 
         Events.GUI_OPEN.register { event ->
+            E2E.hit("event.gui_open")
             guiEvents++
             if (guiEvents <= 3) {
                 println("[oml_testmod] GuiOpenEvent (first 3): screen=${event.screen?.platform?.javaClass?.name} canceled=${event.canceled}")
@@ -88,17 +118,28 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider {
         }
 
         Events.WORLD_LOAD.register { event ->
+            E2E.hit("event.world_load")
             println("[oml_testmod] WorldLoadEvent: world=${event.world?.platform?.javaClass?.name ?: "null (disconnected)"}")
         }
 
         Events.CHAT_SENT.register { event ->
+            E2E.hit("event.chat_sent")
             println("[oml_testmod] ChatSentEvent: \"${event.message}\"")
         }
 
         Events.CHAT_RECEIVED.register { event ->
+            E2E.hit("event.chat_received")
             println("[oml_testmod] ChatReceivedEvent: \"${event.message}\"")
         }
+
+        // The side is asked through OMLCore (reflective: this mod compiles against oml-api only).
+        if (isServerSide()) println("[oml_testmod] running as the dedicated server")
     }
+
+    private fun isServerSide(): Boolean =
+        runCatching {
+            Class.forName("org.ohmyloader.core.OMLCore").getMethod("isServerSide").invoke(null) as Boolean
+        }.getOrDefault(false)
 
     /**
      * In-game data-component probe: reads [test_sword] back out of `BuiltInRegistries.ITEM` and
@@ -115,7 +156,10 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider {
     private fun probeItemComponents() {
         if (componentsReadOnce) return
         probeAttempts++
-        if (probeAttempts > 1200) return // ~60s of server ticks; give up quietly rather than spin forever
+        if (probeAttempts > 1200) {
+            E2E.check("content.item_components", false, "probe gave up after 1200 attempts (~60s of ticks)")
+            return
+        }
         runCatching {
             // A mod compiles against oml-api only, so OMLCore is reached reflectively by name —
             // same pattern MergeProbe uses (org.ohmyloader.* is parent-first, one runtime identity).
@@ -130,6 +174,15 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider {
             val ours = readComponents(loader, "oml_testmod", "test_sword")
                 ?: error("component bake has run (vanilla items bound) but test_sword is NOT bound")
             println("[oml_testmod] component probe [test_sword]: max_damage=${ours.maxDamage}")
+            E2E.check("content.item_components", true, "max_damage=${ours.maxDamage}")
+            // The declared values (592 / two ADD_VALUE modifiers / two tool rules) are asserted, not
+            // just printed: "the item exists" and "the components the declaration asked for are there"
+            // are different claims, and only the second one catches a bake that silently dropped them.
+            E2E.check(
+                "content.item_components.max_damage",
+                (ours.maxDamage as? Int) == 592,
+                "expected 592, got ${ours.maxDamage}",
+            )
 
             val dataComponents = loader.loadClass("net.minecraft.core.component.DataComponents")
             val modifiers = ours.getComponent(dataComponents.getField("ATTRIBUTE_MODIFIERS").get(null))
@@ -153,7 +206,18 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider {
                 "[oml_testmod] component probe [test_sword]: tool(default_mining_speed=$defaultSpeed, " +
                     "damage_per_block=$damagePerBlock, rules=${rules?.size})"
             )
+            E2E.check(
+                "content.item_components.attributes",
+                entries?.size == 2,
+                "expected 2 attribute modifiers, got ${entries?.size}",
+            )
+            E2E.check(
+                "content.item_components.tool_rules",
+                rules?.size == 2,
+                "expected 2 tool rules, got ${rules?.size}",
+            )
         }.onFailure {
+            E2E.check("content.item_components", false, it.toString())
             println("[oml_testmod] component probe failed: $it")
             // The reflective path wraps the real failure; the full chain is what diagnoses it.
             var cause: Throwable? = it.cause

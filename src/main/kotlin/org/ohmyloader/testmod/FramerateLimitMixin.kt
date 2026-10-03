@@ -32,6 +32,7 @@ class FramerateLimitMixin {
      */
     @Inject(method = "getFramerateLimit", desc = "()I", at = At(At.TAIL), require = 1)
     fun onLimitFramerate(ci: CallbackInfo) {
+        E2E.hit("mixin.frame_limit.tail")
         frameLimitCalls++
         if (frameLimitCalls == 1) {
             println("[oml_testmod] Mixin: getFramerateLimit TAIL injection in effect")
@@ -45,6 +46,7 @@ class FramerateLimitMixin {
      */
     @Inject(method = "getFramerateLimit", desc = "()I", at = At(At.HEAD), cancellable = true, require = 1)
     fun capFramerateLimit(ci: CallbackInfoReturnable<Int>) {
+        E2E.hit("mixin.frame_limit.head")
         fpsCalls++
         if (fpsCalls <= 5) {
             if (fpsCalls == 1) {

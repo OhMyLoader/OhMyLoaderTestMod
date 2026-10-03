@@ -36,6 +36,21 @@ oml {
     )
 }
 
+// E2E runs (M1 in docs/开发计划.md): the verification mod's probes end in a verdict, and the run's
+// exit code carries it, so a script or CI job can fail on it. `-Poml.e2e.ticks=N` is the whole switch
+// — without it the mod behaves exactly as before.
+providers.gradleProperty("oml.e2e.ticks").orNull?.let { ticks ->
+    val e2e = listOf("-Doml.e2e=1", "-Doml.e2e.ticks=$ticks") +
+        listOf("timeoutSeconds", "graceTicks", "expectExtra").mapNotNull { name ->
+            providers.gradleProperty("oml.e2e.$name").orNull?.let { "-Doml.e2e.$name=$it" }
+        }
+    oml.extraJvmArgs.addAll(e2e)
+}
+
+// Ask OML to mirror its console output into a file (see OMLCore.installLogFile); a run that uploads
+// the log as an artifact does not have to hope the launcher kept stdout anywhere.
+providers.gradleProperty("oml.log.file").orNull?.let { oml.extraJvmArgs.add("-Doml.log.file=$it") }
+
 idea {
     project {
         settings {

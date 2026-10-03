@@ -34,6 +34,9 @@ object MergeProbe {
      */
     @JvmStatic
     fun hitShadow(launchedVersion: String?) {
+        // A null/blank value would mean the handler read the mixin's own @Shadow field instead of the
+        // target's, which is the failure this observation exists for.
+        E2E.check("merge.shadow_this", !launchedVersion.isNullOrBlank(), "this.launchedVersion=$launchedVersion")
         if (shadowLogged.compareAndSet(false, true)) {
             println(
                 "[oml_testmod] class merge: instance handler this semantics in effect -- " +
@@ -57,6 +60,7 @@ object MergeProbe {
      */
     @JvmStatic
     fun modifiedConstant(where: String, value: Int) {
+        E2E.hit("mixin.modify_constant")
         if (constantLogged.compareAndSet(false, true)) {
             println(
                 "[oml_testmod] class merge: instance @ModifyConstant in effect -- $where, received constant = $value" +
@@ -77,6 +81,7 @@ object MergeProbe {
      */
     @JvmStatic
     fun hitCtorInit(value: Int) {
+        E2E.check("merge.ctor_init", value == 1234, "mixin field initializer=$value (0 = <init> not spliced)")
         if (ctorInitLogged.compareAndSet(false, true)) {
             println(
                 "[oml_testmod] class merge: constructor merge in effect -- instance field initializer in the mixin constructor = $value" +
@@ -117,6 +122,7 @@ object MergeProbe {
         val field = runCatching {
             gameLoader().loadClass("net.minecraft.client.Minecraft").getDeclaredField("proxy")
         }.getOrElse {
+            E2E.check("inject.access_widening", false, "field unreflectable: $it")
             reportUnreflectable(it)
             return
         }
@@ -127,6 +133,11 @@ object MergeProbe {
             "[oml_testmod] access rewrite: Minecraft.proxy is now ${Modifier.toString(field.modifiers)}" +
                 " (was private final); publicLookup read handle = " +
                 if (handle.isSuccess) "usable" else "unusable (${handle.exceptionOrNull()?.javaClass?.simpleName})"
+        )
+        E2E.check(
+            "inject.access_widening",
+            Modifier.isPublic(field.modifiers) && handle.isSuccess,
+            "modifiers=${Modifier.toString(field.modifiers)} publicLookup=${if (handle.isSuccess) "usable" else "unusable"}",
         )
     }
 
@@ -194,6 +205,7 @@ object MergeProbe {
      */
     @JvmStatic
     fun modifiedReturnValue(where: String, value: Int) {
+        E2E.hit("mixin.modify_return_value")
         if (returnValueLogged.compareAndSet(false, true)) {
             println(
                 "[oml_testmod] class merge: @ModifyReturnValue in effect -- $where, received return value = $value" +
@@ -213,6 +225,7 @@ object MergeProbe {
      */
     @JvmStatic
     fun modifiedExpressionValue(where: String, value: Int) {
+        E2E.hit("mixin.modify_expression_value")
         if (expressionValueLogged.compareAndSet(false, true)) {
             println(
                 "[oml_testmod] class merge: @ModifyExpressionValue in effect -- $where, received produced value = $value" +
@@ -265,12 +278,12 @@ object MergeProbe {
         // pack tends to get wrong. The synthesized ids exist in no file at all and the texture is a real
         // jar file, so a served hit must report `oml_mod_resources` as its source pack.
         out += "[oml_testmod] resource pack getResource (by id: synthesized block assets, jar assets):"
-        for (id in listOf(
-            "oml_testmod:blockstates/test_block.json",
-            "oml_testmod:models/block/test_block.json",
-            "oml_testmod:items/test_block.json",
-            "oml_testmod:textures/block/test_block.png",
-            "oml_testmod:lang/en_us.json",
+        for ((check, id) in listOf(
+            "pack.byid.blockstate" to "oml_testmod:blockstates/test_block.json",
+            "pack.byid.model" to "oml_testmod:models/block/test_block.json",
+            "pack.byid.item_def" to "oml_testmod:items/test_block.json",
+            "pack.byid.texture" to "oml_testmod:textures/block/test_block.png",
+            "pack.byid.lang" to "oml_testmod:lang/en_us.json",
         )) {
             val served = resourceOf(id)?.let { resource ->
                 val bytes = (resource.javaClass.getMethod("open").invoke(resource) as java.io.InputStream)
@@ -279,6 +292,7 @@ object MergeProbe {
                 "$bytes byte(s) from $pack"
             } ?: "missing"
             out += "[oml_testmod]   $id -> $served"
+            E2E.check(check, served != "missing", "$id -> $served")
         }
 
         // Selector is a functional interface; a Proxy answering true accepts every candidate
@@ -297,13 +311,13 @@ object MergeProbe {
         // and how 26.3 finds sounds (Sound.SOUND_LISTER = FileToIdConverter("sounds", ".ogg")), particles,
         // atlas sprites and blockstates/items.
         out += "[oml_testmod] resource pack listResources (discovery by directory — this is the path a mod's sounds, atlas sprites and overrides depend on):"
-        for (dir in listOf(
-            "blockstates",
-            "models/block",
-            "items",
-            "textures/block",
-            "textures/particle",
-            "lang",
+        for ((check, dir) in listOf(
+            "pack.dir.blockstates" to "blockstates",
+            "pack.dir.models_block" to "models/block",
+            "pack.dir.items" to "items",
+            "pack.dir.textures_block" to "textures/block",
+            "pack.dir.textures_particle" to "textures/particle",
+            "pack.dir.lang" to "lang",
         )) {
             val found = listResources.invoke(manager, dir, selector) as Map<*, *>
             // our own files only: the mod namespace, or our marker name inside the minecraft namespace.
@@ -314,12 +328,18 @@ object MergeProbe {
                 found.keys.map { it.toString() }.filter { it.startsWith("oml_testmod:") || it.contains("oml_test") }
                     .sorted()
             out += "[oml_testmod]   $dir -> ${if (mine.isEmpty()) "none" else mine.joinToString(", ")}"
+            E2E.check(check, mine.isNotEmpty(), "$dir -> ${mine.size} entry(ies)")
         }
         return out
     }
 
     @JvmStatic
     fun hit(mergedStaticField: Int) {
+        E2E.check(
+            "merge.overwrite_static_field",
+            mergedStaticField == 7,
+            "@Unique static field=$mergedStaticField (7 = <clinit> spliced)",
+        )
         if (logged.compareAndSet(false, true)) {
             println(
                 "[oml_testmod] class merge: @Overwrite method body executed, " +
