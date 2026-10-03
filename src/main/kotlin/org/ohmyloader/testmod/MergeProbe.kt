@@ -27,15 +27,18 @@ object MergeProbe {
      * Observation point: what the **instance** handler (which moved into the target class via the
      * class merge) reads as `this.<@Shadow field>`.
      *
-     * The passed-in value is what `this.proxy` evaluates to inside the handler body — before the
-     * merge it is the mixin's `@Shadow` field (always null); after the merge it points at the
-     * **target class's** field (the real value). So this single line is itself evidence that the
+     * The passed-in value is what `this.launchedVersion` evaluates to inside the handler body —
+     * before the merge it is the mixin's `@Shadow` field (always null); after the merge it points at
+     * the **target class's** field (the real value). So this single line is itself evidence that the
      * real Mixin `this` semantics are in effect.
      */
     @JvmStatic
-    fun hitShadow(proxy: String?) {
+    fun hitShadow(launchedVersion: String?) {
         if (shadowLogged.compareAndSet(false, true)) {
-            println("[oml_testmod] class merge: instance handler this semantics in effect -- this.proxy = ${proxy ?: "null"}")
+            println(
+                "[oml_testmod] class merge: instance handler this semantics in effect -- " +
+                    "this.launchedVersion = ${launchedVersion ?: "null"}"
+            )
         }
     }
 
