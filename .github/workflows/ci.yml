@@ -42,3 +42,112 @@ jobs:
       - run: ./gradlew -p OhMyLoader publishToMavenLocal
       - run: ./gradlew -p OhMyLoaderGradle publishToMavenLocal
       - run: ./gradlew build
+
+  # The gate the build job cannot be: it actually launches the game. Both E2E jobs start the same way
+  # (three checkouts + publish the layer into mavenLocal), because mavenLocal is per-job.
+  e2e-server:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7
+        with:
+          repository: OhMyLoader/OhMyLoader
+          ref: main
+          path: OhMyLoader
+      - uses: actions/checkout@v7
+        with:
+          repository: OhMyLoader/OhMyLoaderGradle
+          ref: main
+          path: OhMyLoaderGradle
+      - uses: actions/setup-java@v6
+        with:
+          distribution: zulu
+          java-version: '27'
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.16.0
+      - uses: gradle/actions/setup-gradle@v6
+      - uses: actions/cache@v6
+        with:
+          path: |
+            run/26.3/minecraft
+            run/26.3/libraries
+            run/26.3/natives
+          key: game-files-26.3
+      - run: ./gradlew -p OhMyLoader publishToMavenLocal
+      - run: ./gradlew -p OhMyLoaderGradle publishToMavenLocal
+      # First prove the gate can go red: an expectation nothing reports must fail the run, otherwise a
+      # green verdict means nothing. Cheap — it ends as soon as the tick budget is spent.
+      - name: The gate must be able to fail
+        env:
+          OML_E2E_EXPECT_EXTRA: gate.self-test.never-reported
+          OML_E2E_GRACE_TICKS: '20'
+          OML_E2E_LOG: build/e2e-server-selftest.log
+        run: |
+          if ./scripts/e2e-server.sh; then
+            echo "::error::the E2E gate passed a run that was supposed to fail"
+            exit 1
+          fi
+          echo "gate self-test passed (the run failed as it must)"
+      - name: Server end-to-end
+        run: ./scripts/e2e-server.sh
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: e2e-server-logs
+          path: build/e2e-server*.log
+          if-no-files-found: ignore
+
+  e2e-client:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7
+        with:
+          repository: OhMyLoader/OhMyLoader
+          ref: main
+          path: OhMyLoader
+      - uses: actions/checkout@v7
+        with:
+          repository: OhMyLoader/OhMyLoaderGradle
+          ref: main
+          path: OhMyLoaderGradle
+      - uses: actions/setup-java@v6
+        with:
+          distribution: zulu
+          java-version: '27'
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.16.0
+      - uses: gradle/actions/setup-gradle@v6
+      - uses: actions/cache@v6
+        with:
+          path: |
+            run/26.3/minecraft
+            run/26.3/libraries
+            run/26.3/natives
+          key: game-files-26.3
+      # No GPU on a runner: Xvfb for the display and Mesa's software Vulkan/GL (lavapipe/llvmpipe) for
+      # the renderer 26.3 uses. OpenAL is installed so the client does not log a sound-engine failure.
+      - name: Headless rendering stack
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            xvfb mesa-vulkan-drivers libgl1-mesa-dri libglx-mesa0 libopenal1
+      - run: ./gradlew -p OhMyLoader publishToMavenLocal
+      - run: ./gradlew -p OhMyLoaderGradle publishToMavenLocal
+      - name: Client end-to-end (main menu, then self-quit)
+        env:
+          LIBGL_ALWAYS_SOFTWARE: '1'
+          MESA_LOADER_DRIVER_OVERRIDE: llvmpipe
+          OML_E2E_TIMEOUT: '600'
+          OML_E2E_WATCHDOG: '540'
+        run: xvfb-run -a -s "-screen 0 1280x720x24" ./scripts/e2e-client.sh
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: e2e-client-logs
+          path: build/e2e-client*.log
+          if-no-files-found: ignore
