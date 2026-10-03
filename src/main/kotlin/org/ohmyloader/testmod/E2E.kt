@@ -28,9 +28,9 @@ import java.util.concurrent.atomic.AtomicBoolean
  * - `oml.e2e=1` — treat this run as an E2E run (verdict enforced through the exit code).
  * - `oml.e2e.ticks=N` — after N CLIENT_TICK / SERVER_TICK dispatches [READY] is printed once the
  *   declared expectations have all reported; on the client the game then quits itself.
- * - `oml.e2e.graceTicks=N` — how long past `ticks` the driver keeps waiting for the expectations
- *   (default 600). The client's resource reload finishes seconds after the first ticks, so quitting
- *   on the count alone would cut the pack probes off.
+ * - `oml.e2e.graceSeconds=N` — how long past `ticks` the driver keeps waiting for the expectations
+ *   (default 120, wall-clock). The client's resource reload and world load finish seconds after the
+ *   first ticks, so ending on the count alone would cut the pack probes off.
  * - `oml.e2e.timeoutSeconds=N` — watchdog (default 300): a session that never finishes fails.
  * - `oml.e2e.expectExtra=<name>` — self-test of the gate: an expectation nothing reports, so a
  *   working gate must fail. Used by CI to prove the gate can go red before trusting it green.
@@ -95,28 +95,34 @@ object E2E {
         val ticks = System.getProperty("oml.e2e.ticks")?.toIntOrNull() ?: return
         // Both sides register both events: only the current side's tick ever fires, so one counter
         // and one driver serve the client and the dedicated server.
-        Events.CLIENT_TICK.register { tick(ticks, grace) }
-        Events.SERVER_TICK.register { tick(ticks, grace) }
+        Events.CLIENT_TICK.register { tick(ticks, graceSeconds) }
+        Events.SERVER_TICK.register { tick(ticks, graceSeconds) }
     }
 
-    private val grace =
-        System.getProperty("oml.e2e.graceTicks")?.toIntOrNull() ?: 600
+    /**
+     * How long past the minimum dispatch count the driver waits for the expectations, in **wall-clock
+     * seconds**. Seconds rather than ticks on purpose: CLIENT_TICK is dispatched per frame, so a
+     * software-rendered CI runner produces a fraction of the dispatches a real GPU does, and a
+     * tick-denominated grace that is generous here would be far too short there.
+     */
+    private val graceSeconds =
+        System.getProperty("oml.e2e.graceSeconds")?.toIntOrNull() ?: 120
 
+    private val startedNanos = System.nanoTime()
     private var ticksSeen = 0
 
     /**
-     * [READY] means "the run did what it was supposed to do": the minimum tick count has passed AND
+     * [READY] means "the run did what it was supposed to do": the minimum dispatch count has passed AND
      * every declared expectation has been reported. The second half matters on the client, where the
-     * resource reload finishes seconds after the first ticks — quitting on the tick count alone would
-     * cut the pack probes off and fail a healthy build. The grace window bounds the wait; after it the
-     * session ends anyway and the missing checks turn into the verdict's failures, which is a red gate
-     * rather than a hung job.
+     * resource reload and the world load finish seconds after the first ticks — ending on the count
+     * alone would cut the pack probes off and fail a healthy build. The grace window bounds the wait;
+     * after it the session ends anyway and the missing checks become the verdict's failures, which is a
+     * red gate rather than a hung job.
      */
-    private fun tick(target: Int, graceTicks: Int) {
+    private fun tick(target: Int, grace: Int) {
         ticksSeen++
         if (ticksSeen < target) return
-        val complete = missingExpected().isEmpty()
-        if (!complete && ticksSeen < target + graceTicks) return
+        if (missingExpected().isNotEmpty() && elapsedSeconds() < grace) return
         if (!ready.compareAndSet(false, true)) return
         val side = if (isServerSide()) "server" else "client"
         val missing = missingExpected()
@@ -126,6 +132,8 @@ object E2E {
         )
         if (side == "client") quitClient()
     }
+
+    private fun elapsedSeconds(): Long = (System.nanoTime() - startedNanos) / 1_000_000_000
 
     private fun missingExpected(): List<String> = synchronized(lock) { expected.filter { it !in observed } }
 

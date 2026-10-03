@@ -6,7 +6,7 @@
 # on the verdict. Exit code 0 only when the run passed — that is the gate; the RESULT line is why.
 #
 # Env: OML_E2E_TICKS (default 200), OML_E2E_READY_TIMEOUT (240s), OML_E2E_STOP_TIMEOUT (60s),
-#      OML_E2E_LOG (build/e2e-server.log), OML_E2E_GRACE_TICKS, OML_E2E_EXPECT_EXTRA (gate self-test:
+#      OML_E2E_LOG (build/e2e-server.log), OML_E2E_GRACE_SECONDS, OML_E2E_EXPECT_EXTRA (gate self-test:
 #      an expectation nothing reports, so a working gate must fail).
 set -uo pipefail
 cd "$(dirname "$0")/.."
@@ -16,7 +16,7 @@ READY_TIMEOUT="${OML_E2E_READY_TIMEOUT:-240}"
 STOP_TIMEOUT="${OML_E2E_STOP_TIMEOUT:-60}"
 LOG="${OML_E2E_LOG:-build/e2e-server.log}"
 E2E_ARGS=(-Poml.e2e.ticks="$TICKS" -Poml.e2e.timeoutSeconds="${OML_E2E_WATCHDOG:-300}")
-[ -n "${OML_E2E_GRACE_TICKS:-}" ] && E2E_ARGS+=(-Poml.e2e.graceTicks="$OML_E2E_GRACE_TICKS")
+[ -n "${OML_E2E_GRACE_SECONDS:-}" ] && E2E_ARGS+=(-Poml.e2e.graceSeconds="$OML_E2E_GRACE_SECONDS")
 [ -n "${OML_E2E_EXPECT_EXTRA:-}" ] && E2E_ARGS+=(-Poml.e2e.expectExtra="$OML_E2E_EXPECT_EXTRA")
 [ -n "${OML_LOG_FILE:-}" ] && E2E_ARGS+=(-Poml.log.file="$OML_LOG_FILE")
 mkdir -p "$(dirname "$LOG")"

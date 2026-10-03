@@ -41,7 +41,7 @@ oml {
 // — without it the mod behaves exactly as before.
 providers.gradleProperty("oml.e2e.ticks").orNull?.let { ticks ->
     val e2e = listOf("-Doml.e2e=1", "-Doml.e2e.ticks=$ticks") +
-        listOf("timeoutSeconds", "graceTicks", "expectExtra").mapNotNull { name ->
+        listOf("timeoutSeconds", "graceSeconds", "expectExtra", "quickPlay").mapNotNull { name ->
             providers.gradleProperty("oml.e2e.$name").orNull?.let { "-Doml.e2e.$name=$it" }
         }
     oml.extraJvmArgs.addAll(e2e)

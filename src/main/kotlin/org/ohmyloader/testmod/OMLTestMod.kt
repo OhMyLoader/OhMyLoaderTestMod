@@ -56,10 +56,10 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider {
             E2E.expect("content.item_components")
         } else {
             // Deliberately not expected here, because a session that stops at the main menu does not
-            // reach them: `event.gui_open` needs a screen swap (observed when a world is joined) and
-            // `merge.overwrite_static_field` needs `getLaunchedVersion()`, which the title screen never
-            // asks for. They are still recorded when they do happen, so a wrong observation fails the
-            // run; only "must happen on every client run" is restricted to what really does.
+            // reach them: `event.gui_open` needs a screen swap and `merge.overwrite_static_field` needs
+            // `getLaunchedVersion()`, which the title screen never asks for. They are still recorded
+            // when they do happen, so a wrong observation fails the run; only "must happen on every
+            // client run" is restricted to what really does.
             E2E.expect(
                 "merge.shadow_this", "merge.ctor_init",
                 "inject.access_widening",
@@ -72,6 +72,9 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider {
                 "pack.dir.blockstates", "pack.dir.models_block", "pack.dir.items",
                 "pack.dir.textures_block", "pack.dir.textures_particle", "pack.dir.lang",
             )
+            // AC-1 includes joining a world, and the run says whether it was asked to: the harness
+            // cannot create one, so it only expects the join when it arranged for a save to exist.
+            if (System.getProperty("oml.e2e.quickPlay") != null) E2E.expect("event.world_load")
         }
 
         // the access-flag rewrite is done by the adapter's DSL rule; here it is observed from the mod side
