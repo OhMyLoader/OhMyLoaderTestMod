@@ -1,6 +1,9 @@
 package org.ohmyloader.testmod
 
 import org.ohmyloader.api.event.Events
+import java.io.FileDescriptor
+import java.io.FileOutputStream
+import java.io.PrintStream
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -38,6 +41,20 @@ import java.util.concurrent.atomic.AtomicBoolean
 object E2E {
 
     private const val PREFIX = "[OML-E2E]"
+
+    /**
+     * The verdict's second door: the game pipes System.out through its log4j redirect, and log4j
+     * stops its context from its own shutdown hook — the two hooks race, and a line printed into a
+     * stopped context vanishes from the console and the game's log file alike. FileDescriptor.out is
+     * the process's real stdout, which no teardown closes.
+     */
+    private val rawOut by lazy { PrintStream(FileOutputStream(FileDescriptor.out), true) }
+
+    /** Verdict emission: normal stdout for the game's log files, raw stdout so the gate cannot miss it. */
+    private fun emit(line: String) {
+        println(line)
+        rawOut.println(line)
+    }
 
     private val enabled = System.getProperty("oml.e2e") != null
     private val lock = Any()
@@ -87,8 +104,7 @@ object E2E {
             Thread.sleep(timeout * 1000L)
             // halt(), not exit(): shutdown hooks would run the verdict first and report PASS on a
             // run that never got anywhere, which is exactly the failure this watchdog exists for.
-            println("$PREFIX RESULT FAIL reason=timeout after ${timeout}s")
-            System.out.flush()
+            emit("$PREFIX RESULT FAIL reason=timeout after ${timeout}s")
             Runtime.getRuntime().halt(1)
         }, "oml-e2e-watchdog").apply { isDaemon = true }.start()
 
@@ -147,14 +163,13 @@ object E2E {
             failed = observed.filterValues { !it.first }.keys.toList()
             checks = observed.size
         }
-        for (name in missing) println("$PREFIX FAILED $name (never reported)")
+        for (name in missing) emit("$PREFIX FAILED $name (never reported)")
         for (name in failed) {
             val detail = synchronized(lock) { observed[name]?.second }.orEmpty()
-            println("$PREFIX FAILED $name (${detail.ifEmpty { "failed" }})")
+            emit("$PREFIX FAILED $name (${detail.ifEmpty { "failed" }})")
         }
         val failures = missing.size + failed.size
-        println("$PREFIX RESULT ${if (failures == 0) "PASS" else "FAIL"} checks=$checks failures=$failures")
-        System.out.flush()
+        emit("$PREFIX RESULT ${if (failures == 0) "PASS" else "FAIL"} checks=$checks failures=$failures")
         return failures
     }
 
