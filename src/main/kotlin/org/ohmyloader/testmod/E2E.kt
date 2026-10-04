@@ -137,6 +137,7 @@ object E2E {
      */
     private fun tick(target: Int, grace: Int) {
         ticksSeen++
+        if (ticksSeen % 600 == 0 && !isServerSide()) printClientState()
         if (ticksSeen < target) return
         if (missingExpected().isNotEmpty() && elapsedSeconds() < grace) return
         if (!ready.compareAndSet(false, true)) return
@@ -150,6 +151,26 @@ object E2E {
     }
 
     private fun elapsedSeconds(): Long = (System.nanoTime() - startedNanos) / 1_000_000_000
+
+    /**
+     * Where the client sits, sampled every 600 ticks. A join that is still loading and a join that
+     * never started differ in nothing observable but this — the tick count alone grows the same way
+     * for both (on CI's software renderer a red run used to say only "world_load never reported").
+     * Both members are public on 26.3 (`Minecraft.level`, `Gui.screen()`), reached through
+     * [gameLoader] per the parent-loader rule; any failure degrades to an "unavailable" line.
+     */
+    private fun printClientState() {
+        runCatching {
+            val minecraft = gameLoader().loadClass("net.minecraft.client.Minecraft").getMethod("getInstance").invoke(null)
+            val mcClass = minecraft.javaClass
+            val gui = mcClass.getField("gui").get(minecraft)
+            val screen = gui.javaClass.getMethod("screen").invoke(gui)
+            val world = mcClass.getField("level").get(minecraft)
+            println("$PREFIX client-state ticks=$ticksSeen screen=${screen?.javaClass?.simpleName ?: "null"} world=${if (world != null) "loaded" else "none"}")
+        }.onFailure {
+            println("$PREFIX client-state ticks=$ticksSeen unavailable (${it.javaClass.simpleName}: ${it.message})")
+        }
+    }
 
     private fun missingExpected(): List<String> = synchronized(lock) { expected.filter { it !in observed } }
 
