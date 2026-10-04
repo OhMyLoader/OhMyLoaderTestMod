@@ -14,7 +14,8 @@ import org.ohmyloader.api.event.Events
  * 1. 全程只用 oml-api —— 不碰 platform 逃生舱；
  * 2. 每遇到一个 API 缺口，记入 README-TECHMOD.md 的缺口清单，不在 mod 里绕过。
  *
- * M1 范围：铜/锡矿（方块）+ 掉落的生矿/锭/粉/板（物品）+ 粉碎/熔炼两条加工链。
+ * M2 范围：在 M1 材料链之上加入生成（矿石自然生成）与机器（压制机：BlockEntity tick +
+ * 持久进度）——M2 之前卡死的两条加工链现已可声明。
  * 刻意超出当前 ContentRegistry 能力的部分（掉落、配方、世界生成）在声明处用 `Missing:` 注释标注，
  * 作为缺口清单的代码锚点。
  */
@@ -28,6 +29,9 @@ class TechMod : OMLModInitializer, OMLContentProvider {
         val INGOT_ITEMS = listOf("copper_ingot", "tin_ingot")
         val DUST_ITEMS = listOf("copper_dust", "tin_dust")
         val PLATE_ITEMS = listOf("copper_plate", "tin_plate")
+
+        /** One press cycle, in game ticks (3 seconds). */
+        const val PRESS_TICKS_PER_CYCLE = 60
     }
 
     override fun declareContent(registry: ContentRegistry) {
@@ -69,6 +73,30 @@ class TechMod : OMLModInitializer, OMLContentProvider {
         for (plate in PLATE_ITEMS) {
             registry.declareItem(plate)
         }
+
+        // 压制机：M2 BlockEntity API 的验收件——tick 绑定在方块上（不再挂全局 SERVER_TICK），
+        // 进度存 OMLBlockData 随存档持久化；板块的产出途径仍是缺口（需要背包 API，见缺口清单）
+        registry.declareBlock("press") {
+            destroyTime = 3.5f
+            explosionResistance = 6.0f
+            requiresCorrectToolForDrops = true
+            blockEntity {
+                tick { event ->
+                    val progress = event.data.getInt("progress") + 1
+                    if (progress >= PRESS_TICKS_PER_CYCLE) {
+                        event.data.putInt("progress", 0)
+                        println("[techmod] press at ${event.x}/${event.y}/${event.z}: cycle complete")
+                    } else {
+                        event.data.putInt("progress", progress)
+                    }
+                }
+            }
+        }
+        registry.declareShapedCrafting(
+            result = "press",
+            pattern = listOf("III", "I I", "III"),
+            key = mapOf('I' to "minecraft:iron_ingot"),
+        )
     }
 
     override fun onInitialize(context: ModContext) {
@@ -77,8 +105,9 @@ class TechMod : OMLModInitializer, OMLContentProvider {
                 "${ORE_BLOCKS.size} ores + ${RAW_ITEMS.size + INGOT_ITEMS.size + DUST_ITEMS.size + PLATE_ITEMS.size} items declared"
         )
 
-        Events.SERVER_TICK.register {
-            // M2 将在这里驱动机器的 tick 逻辑（BlockEntity API 缺口落地后）
-        }
+        println(
+            "[techmod] machine: press block entity declared — tick is bound to the block, " +
+                "one cycle = $PRESS_TICKS_PER_CYCLE server ticks"
+        )
     }
 }

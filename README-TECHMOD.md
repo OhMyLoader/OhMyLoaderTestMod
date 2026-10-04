@@ -29,10 +29,10 @@
 
 | 缺口                        | 影响                                                                                                     | 代码锚点                                                        |
 |-----------------------------|----------------------------------------------------------------------------------------------------------|-----------------------------------------------------------------|
-| **世界生成 API**            | 矿石不会自然生成在地下，只能 `/setblock` 放置                                                            | `TechMod.kt` 的 `Missing: worldgen`                             |
-| **手动 / 机器配方**         | 粉与板没有产出途径（没有磨粉机、压制机的配方与方块实体 API）                                             | `TechMod.kt` 的 `Missing: 手动配方/磨粉机`、`Missing: 压制配方` |
-| **BlockEntity / tick 逻辑** | M2 的机器 tick 只能挂在全局 `SERVER_TICK` 上，无法绑定到具体方块                                         | `TechMod.onInitialize` 里的 `SERVER_TICK` 占位                  |
-| **方块行为的自定义**        | `ContentRegistry` 声明出来的方块/物品行为是 vanilla 的（纯数据），自定义行为目前只能走 `platform` 逃生舱 | `ContentRegistry` 的类文档                                      |
+| ~~**世界生成 API**~~ ✅ M2  | ~~矿石不会自然生成在地下，只能 `/setblock` 放置~~ `generateAsOre` 已落地（M2 / T-2.3），铜/锡矿自然生成   | `TechMod.kt` 的 `generateAsOre`                                 |
+| **手动 / 机器配方**（缩小） | 压制机已有合成配方（数据轨能力）；但粉与板的**产出途径**仍缺——机器处理物品需要背包/物品 API（M3 范围）     | `TechMod.kt` 的 `Missing: 手动配方/磨粉机`、`Missing: 压制配方` |
+| ~~**BlockEntity / tick 逻辑**~~ ✅ M2 | ~~机器 tick 只能挂在全局 `SERVER_TICK` 上~~ `blockEntity { tick { } }` 已落地（M2 / T-2.2），压制机进度持久化 | `TechMod.kt` 的 `blockEntity`                                   |
+| **方块行为的自定义**（缩小） | 声明式行为钩子（`onStepOn` / `onHit`）已落地（M2 / T-2.1）；完全自定义的方块类仍走 `platform` 逃生舱       | `ContentRegistry` 的类文档                                      |
 
 ## 运行
 
