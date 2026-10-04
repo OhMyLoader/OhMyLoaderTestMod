@@ -37,7 +37,12 @@ class TechMod : OMLModInitializer, OMLContentProvider {
                 destroyTime = 3.0f
                 explosionResistance = 3.0f
                 requiresCorrectToolForDrops = true
-                // Missing: worldgen — 让矿出现在地下（矿石生成 API）
+                generateAsOre {
+                    veinSize = 8
+                    perChunk = 6
+                    minY = 16
+                    maxY = 64
+                }
             }
         }
         // 挖掘矿石掉落对应原矿（掉落表覆盖，数据包 JSON 经注入器应答）
