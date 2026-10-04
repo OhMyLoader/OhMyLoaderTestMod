@@ -43,6 +43,16 @@ if [ ! -d "$WORLD_DIR" ]; then
   fi
 fi
 
+# The accessibility onboarding screen blocks the whole boot path until someone clicks through it:
+# with no options.txt the game shows it instead of the title screen and quickPlay never fires
+# (observed on CI: 12 minutes of AccessibilityOnboardingScreen, world=none). Pre-seed the skip flag;
+# only written when absent, so a developer's own settings are never touched.
+OPTIONS="run/client/options.txt"
+if [ ! -f "$OPTIONS" ]; then
+  mkdir -p run/client
+  echo 'onboardAccessibility:false' > "$OPTIONS"
+fi
+
 E2E_ARGS=(-Poml.e2e.ticks="$TICKS" -Poml.e2e.timeoutSeconds="$WATCHDOG")
 E2E_ARGS+=(-Poml.quickPlay="$WORLD" -Poml.e2e.quickPlay=1)
 [ -n "${OML_E2E_GRACE_SECONDS:-}" ] && E2E_ARGS+=(-Poml.e2e.graceSeconds="$OML_E2E_GRACE_SECONDS")
