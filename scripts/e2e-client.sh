@@ -35,6 +35,12 @@ if [ ! -d "$WORLD_DIR" ]; then
   fi
   mkdir -p "$(dirname "$WORLD_DIR")"
   cp -r run/server/world "$WORLD_DIR"
+  # The script runs without `set -e`: a failed copy must not turn into the silent shape of "the
+  # client boots, quickPlay finds no save, lands on the title screen, world_load never reports".
+  if [ ! -f "$WORLD_DIR/level.dat" ]; then
+    echo "e2e-client: world copy incomplete — no level.dat in $WORLD_DIR"
+    exit 1
+  fi
 fi
 
 E2E_ARGS=(-Poml.e2e.ticks="$TICKS" -Poml.e2e.timeoutSeconds="$WATCHDOG")

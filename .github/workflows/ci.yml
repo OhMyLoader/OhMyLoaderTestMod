@@ -82,7 +82,7 @@ jobs:
       - name: The gate must be able to fail
         env:
           OML_E2E_EXPECT_EXTRA: gate.self-test.never-reported
-          OML_E2E_GRACE_TICKS: '20'
+          OML_E2E_GRACE_SECONDS: '20'
           OML_E2E_LOG: build/e2e-server-selftest.log
         run: |
           if ./scripts/e2e-server.sh; then
@@ -144,6 +144,10 @@ jobs:
           MESA_LOADER_DRIVER_OVERRIDE: llvmpipe
           OML_E2E_TIMEOUT: '600'
           OML_E2E_WATCHDOG: '540'
+          # llvmpipe/lavapipe: booting to the title screen and loading the world take minutes, and
+          # the grace clock runs from JVM start — the 120s local-GPU default expires mid-join
+          # (observed: READY incomplete=1, world_load never reported, 26/27 checks green).
+          OML_E2E_GRACE_SECONDS: '360'
         run: xvfb-run -a -s "-screen 0 1280x720x24" ./scripts/e2e-client.sh
       - uses: actions/upload-artifact@v7
         if: always()
