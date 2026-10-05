@@ -21,7 +21,12 @@ import org.ohmyloader.api.content.OMLContentProvider
  * 刻意超出当前 ContentRegistry 能力的部分（掉落、配方、世界生成）在声明处用 `Missing:` 注释标注，
  * 作为缺口清单的代码锚点。
  */
-@Mod(id = "techmod", name = "Tech Mod", version = "0.1.0")
+@Mod(
+    id = "techmod",
+    name = "Tech Mod",
+    version = "0.1.0",
+    dependencies = ["oml_testmod@>=0.1.0"],
+)
 class TechMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider {
 
     companion object {
