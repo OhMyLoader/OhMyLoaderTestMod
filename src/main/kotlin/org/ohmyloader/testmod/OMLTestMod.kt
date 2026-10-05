@@ -3,6 +3,8 @@ package org.ohmyloader.testmod
 import org.ohmyloader.api.Mod
 import org.ohmyloader.api.ModContext
 import org.ohmyloader.api.OMLModInitializer
+import org.ohmyloader.api.client.OMLKeyBindingProvider
+import org.ohmyloader.api.client.OMLKeyBindingRegistry
 import org.ohmyloader.api.command.OMLCommandProvider
 import org.ohmyloader.api.command.OMLCommandRegistry
 import org.ohmyloader.api.content.ContentRegistry
@@ -17,7 +19,7 @@ import org.ohmyloader.api.network.OMLNetworkRegistry
  * traceable.
  */
 @Mod(id = "oml_testmod", name = "OML Test Mod", version = "0.1.0")
-class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider, OMLNetworkProvider {
+class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider, OMLNetworkProvider, OMLKeyBindingProvider {
 
     private var ticks = 0
     private var serverTicks = 0
@@ -32,6 +34,12 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider, OM
         commands.register("oml_e2e_hello") {
             executes { E2E.hit("command.executed") }
         }
+    }
+
+    override fun declareKeyBindings(keyBindings: OMLKeyBindingRegistry) {
+        // Not expected anywhere: nothing in the harness presses the key, but a manual press must
+        // be recorded — a wrong observation still fails the run.
+        keyBindings.register("probe", "key.keyboard.k") { E2E.hit("keybind.pressed") }
     }
 
     override fun declareContent(registry: ContentRegistry) {
@@ -86,13 +94,15 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider, OM
                 "pack.byid.lang",
                 "pack.dir.blockstates", "pack.dir.models_block", "pack.dir.items",
                 "pack.dir.textures_block", "pack.dir.textures_particle", "pack.dir.lang",
+                "keybind.registered", "creative.tab_registered",
             )
             // AC-1 includes joining a world, and the run says whether it was asked to: the harness
             // cannot create one, so it only expects the join when it arranged for a save to exist.
             // The payload round trip needs that connection too — singleplayer's client and integrated
             // server are two ends of a real loopback, so the join is what makes the trip observable.
             if (System.getProperty("oml.e2e.quickPlay") != null) {
-                E2E.expect("event.world_load", "network.server_received", "network.round_trip")
+                // The HUD pass runs only with a world loaded, so it shares the join's condition.
+                E2E.expect("event.world_load", "network.server_received", "network.round_trip", "hud.rendered")
             }
         }
 
@@ -104,6 +114,7 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider, OM
             ticks++
             NetworkProbe.tickClientSide()
             MergeProbe.reportResourceInjection()
+            probeClientFeatures()
             if (ticks % 200 == 0) {
                 println("[oml_testmod] ClientTickEvent received $ticks times")
             }
@@ -156,6 +167,11 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider, OM
         Events.CHAT_RECEIVED.register { event ->
             E2E.hit("event.chat_received")
             println("[oml_testmod] ChatReceivedEvent: \"${event.message}\"")
+        }
+
+        // The HUD draw surface arrives once per frame while a world is loaded (see GameEvents).
+        Events.HUD_RENDER.register { _ ->
+            E2E.hit("hud.rendered")
         }
 
         // The side is asked through OMLCore (reflective: this mod compiles against oml-api only).
@@ -295,6 +311,66 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider, OM
     }
 
     private var serverDataProbed = false
+
+    private var clientFeaturesProbed = false
+    private var clientProbeAttempts = 0
+
+    /**
+     * Client-side probes for the key-binding and creative-tab features, retried from tick 6: the
+     * bindings apply lazily on the first client tick, and the tab materializes at the registry
+     * freeze point. Both are main-menu-visible, so they are checked on every client run. All
+     * reflection goes through the game class loader; failures print instead of killing mod init
+     * (same pattern as [probeItemComponents]).
+     */
+    private fun probeClientFeatures() {
+        if (clientFeaturesProbed || ticks <= 5) return
+        clientProbeAttempts++
+        if (clientProbeAttempts > 1200) {
+            E2E.check("keybind.registered", false, "probe gave up after 1200 attempts (~60s of ticks)")
+            E2E.check("creative.tab_registered", false, "probe gave up after 1200 attempts (~60s of ticks)")
+            return
+        }
+        runCatching {
+            val loader = Class.forName("org.ohmyloader.core.OMLCore")
+                .getMethod("gameClassLoader").invoke(null) as ClassLoader
+
+            // keybind.registered — the declared binding sits on the live Options.keyMappings array
+            val minecraft = loader.loadClass("net.minecraft.client.Minecraft")
+                .getMethod("getInstance").invoke(null)
+                ?: error("Minecraft.getInstance() is null")
+            val options = minecraft.javaClass.getField("options").get(minecraft)
+            val mappings = options.javaClass.getField("keyMappings").get(options) as Array<*>
+            val bound = mappings.any {
+                it!!.javaClass.getMethod("getName").invoke(it) == "key.oml_testmod.probe"
+            }
+            E2E.check(
+                "keybind.registered",
+                bound,
+                "key.oml_testmod.probe is not on Options.keyMappings (size ${mappings.size})",
+            )
+
+            // creative.tab_registered — the oml:main tab exists in the creative-mode-tab registry
+            val identifier = loader.loadClass("net.minecraft.resources.Identifier")
+                .getMethod("fromNamespaceAndPath", String::class.java, String::class.java)
+                .invoke(null, "oml", "main")
+            val tabRegistry = loader.loadClass("net.minecraft.core.registries.BuiltInRegistries")
+                .getField("CREATIVE_MODE_TAB").get(null)
+            val getById = tabRegistry.javaClass.methods.first {
+                it.name == "get" && it.parameterCount == 1 && it.parameterTypes[0].simpleName == "Identifier"
+            }
+            val tabPresent = (getById.invoke(tabRegistry, identifier) as java.util.Optional<*>).isPresent
+            E2E.check(
+                "creative.tab_registered",
+                tabPresent,
+                "oml:main missing from BuiltInRegistries.CREATIVE_MODE_TAB",
+            )
+            clientFeaturesProbed = true
+        }.onFailure {
+            if (clientProbeAttempts % 200 == 0) {
+                println("[oml_testmod] client feature probe retry: $it")
+            }
+        }
+    }
 
     /**
      * The datapack-content probes (M2): a declared recipe present in the server's recipe manager,
