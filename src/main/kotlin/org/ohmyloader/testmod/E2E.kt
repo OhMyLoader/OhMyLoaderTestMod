@@ -20,9 +20,9 @@ import java.util.concurrent.atomic.AtomicBoolean
  * ```
  *
  * The verdict is emitted from a shutdown hook — the session ends by the server receiving `/stop` or
- * the client quitting, and neither path can be relied on to reach mod code afterwards. A run with
- * failures exits non-zero (`halt(1)`), so the *exit code* is the gate and the RESULT line is the
- * artifact that says why.
+ * the client quitting, and neither path can be relied on to reach mod code afterwards. The hook only
+ * prints (halting from inside a shutdown hook deadlocks the JVM); the gate reads the RESULT line, and
+ * the watchdog and quit-fallback paths still halt non-zero as a secondary signal.
  *
  * Declared expectations are the point: a check that must happen and never does is a failure, not a
  * silent skip. Without a declared expectation this file would only be a prettier println.
@@ -96,7 +96,10 @@ object E2E {
         }
 
         Runtime.getRuntime().addShutdownHook(
-            Thread({ if (report() > 0) Runtime.getRuntime().halt(1) }, "oml-e2e-verdict"),
+            // report() only — halt() from inside a shutdown hook deadlocks (the exiting thread holds
+            // Shutdown's lock until every hook finishes, so the FAIL path would hang instead of
+            // exiting). The scripts gate on the RESULT line; a zero exit code without PASS is red.
+            Thread({ report() }, "oml-e2e-verdict"),
         )
 
         val timeout = System.getProperty("oml.e2e.timeoutSeconds")?.toIntOrNull() ?: 300

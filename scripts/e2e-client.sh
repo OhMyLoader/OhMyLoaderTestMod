@@ -70,7 +70,7 @@ if [ "$GRADLE_RC" -eq 137 ]; then
   exit 1
 fi
 if [ "$GRADLE_RC" -ne 0 ]; then
-  echo "e2e-client: FAIL (gradle exit=$GRADLE_RC — the verdict forces a non-zero exit)"
+  echo "e2e-client: FAIL (gradle exit=$GRADLE_RC — early crash or watchdog halt)"
   exit 1
 fi
 if ! grep -q '\[OML-E2E\] RESULT PASS' "$LOG"; then
