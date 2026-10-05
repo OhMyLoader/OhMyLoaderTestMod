@@ -26,3 +26,8 @@ oml {
     minecraftVersion.set("snapshot")   // 运行期解析为清单里的 latest.snapshot，无需跟版本
 }
 ```
+
+## API 稳定性
+
+`oml-api` 对 mod 作者的兼容性契约（三层稳定性、版本号策略、弃用方式）见
+[oml-api/README.md](oml-api/README.md)。

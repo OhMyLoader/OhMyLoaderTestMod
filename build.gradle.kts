@@ -12,6 +12,8 @@ plugins {
     id("org.jetbrains.gradle.plugin.idea-ext") version "1.4.1"
 }
 
+version = "0.1.0"
+
 kotlin {
     jvmToolchain(27)
 }
