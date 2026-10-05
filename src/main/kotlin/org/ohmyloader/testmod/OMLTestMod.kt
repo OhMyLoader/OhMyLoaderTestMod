@@ -53,7 +53,7 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider {
         E2E.install()
         E2E.expect("content.declared", "event.tick")
         if (isServerSide()) {
-            E2E.expect("content.item_components")
+            E2E.expect("content.item_components", "recipe.loaded", "worldgen.ore_feature")
         } else {
             // Deliberately not expected here, because a session that stops at the main menu does not
             // reach them: `event.gui_open` needs a screen swap and `merge.overwrite_static_field` needs
@@ -97,6 +97,7 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider {
             // bakes the item holders' component maps — the first point where components are
             // readable. The probe retries until the bake has run.
             probeItemComponents()
+            probeServerData()
             if (serverTicks == 1) {
                 println("[oml_testmod] ServerTickEvent active (OML has hooked the server main loop)")
             }
@@ -269,5 +270,69 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider {
         val dataComponents = loader.loadClass("net.minecraft.core.component.DataComponents")
         val maxDamage = getComponent.invoke(map, dataComponents.getField("MAX_DAMAGE").get(null))
         return ProbedComponents(maxDamage, map) { type -> getComponent.invoke(map, type)!! }
+    }
+
+    private var serverDataProbed = false
+
+    /**
+     * The datapack-content probes (M2): a declared recipe present in the server's recipe manager,
+     * and the declared ore's placed feature present in the worldgen registries. This is the pair
+     * of checks whose absence let four datapack-side defects (recipe JSON shape, missing listing
+     * enumeration, the reload wipe, the server repository gap) pass every gate — blocks and
+     * materialization were verified, the datapack end was not. Runs on the server ticks (the
+     * registries are populated by then) through the game class loader; `serverInstance` comes
+     * from the constructor hook via OMLCore.
+     */
+    private fun probeServerData() {
+        if (serverDataProbed) return
+        runCatching {
+            val core = Class.forName("org.ohmyloader.core.OMLCore")
+            val server = core.getField("serverInstance").get(null)
+                ?: return // server not up yet; retry on the next tick
+            serverDataProbed = true
+            val loader = core.getMethod("gameClassLoader").invoke(null) as ClassLoader
+
+            val resourceKey = loader.loadClass("net.minecraft.resources.ResourceKey")
+            val identifier = loader.loadClass("net.minecraft.resources.Identifier")
+            val identifierOf = identifier.getMethod("fromNamespaceAndPath", String::class.java, String::class.java)
+            val keyCreate = resourceKey.getMethod("create", resourceKey, identifier)
+            val registries = loader.loadClass("net.minecraft.core.registries.Registries")
+
+            // recipe.loaded — the smelting recipes the techmod declares, read back from the
+            // server's own recipe manager
+            val recipeManager = server.javaClass.getMethod("getRecipeManager").invoke(server)
+            val recipeRegistryKey = registries.getField("RECIPE").get(null)
+            val byKey = recipeManager.javaClass.methods.firstOrNull {
+                it.name == "byKey" && it.parameterTypes[0] == resourceKey
+            } ?: error("byKey(ResourceKey) not found on ${recipeManager.javaClass.name}")
+            fun recipeLoaded(id: String): Boolean {
+                val key = keyCreate.invoke(null, recipeRegistryKey, identifierOf.invoke(null, "techmod", id))
+                return (byKey.invoke(recipeManager, key) as java.util.Optional<*>).isPresent
+            }
+            val recipesOk = recipeLoaded("techmod_raw_copper") && recipeLoaded("techmod_raw_tin")
+            E2E.check("recipe.loaded", recipesOk, "techmod smelting recipes missing from the recipe manager")
+
+            // worldgen.ore_feature — the placed features the ore declarations materialized.
+            // 26.3 renamed RegistryAccess.registryOrThrow to lookupOrThrow, with several
+            // same-erasure overloads; the registry-returning one is picked by return type.
+            val registryAccess = server.javaClass.getMethod("registryAccess").invoke(server)
+            val registryLookup = registryAccess.javaClass.methods.firstOrNull {
+                it.name == "lookupOrThrow" && it.returnType.simpleName == "Registry"
+            } ?: error("lookupOrThrow(Registry) not found on ${registryAccess.javaClass.name}")
+            val placedFeatureKey = registries.getField("PLACED_FEATURE").get(null)
+            val featureRegistry = registryLookup.invoke(registryAccess, placedFeatureKey)
+            val containsKey = featureRegistry.javaClass.methods.firstOrNull {
+                it.name == "containsKey" && it.parameterTypes[0] == resourceKey
+            } ?: error("containsKey(ResourceKey) not found on ${featureRegistry.javaClass.name}")
+            fun oreFeatureLoaded(id: String): Boolean {
+                val key = keyCreate.invoke(null, placedFeatureKey, identifierOf.invoke(null, "techmod", id))
+                return containsKey.invoke(featureRegistry, key) as Boolean
+            }
+            val featuresOk = oreFeatureLoaded("ore_copper_ore") && oreFeatureLoaded("ore_tin_ore")
+            E2E.check("worldgen.ore_feature", featuresOk, "techmod placed features missing from the worldgen registries")
+        }.onFailure {
+            serverDataProbed = true
+            E2E.check("recipe.loaded", false, "probe failed: ${it.javaClass.simpleName}: ${it.message}")
+        }
     }
 }
