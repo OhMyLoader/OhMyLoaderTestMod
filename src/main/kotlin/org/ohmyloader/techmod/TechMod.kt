@@ -5,7 +5,6 @@ import org.ohmyloader.api.ModContext
 import org.ohmyloader.api.OMLModInitializer
 import org.ohmyloader.api.content.ContentRegistry
 import org.ohmyloader.api.content.OMLContentProvider
-import org.ohmyloader.api.event.Events
 
 /**
  * OML 打样科技模组（M1：材料链）。
@@ -102,12 +101,12 @@ class TechMod : OMLModInitializer, OMLContentProvider {
     override fun onInitialize(context: ModContext) {
         println(
             "[techmod] init: id=${context.id} version=${context.version}, " +
-                "${ORE_BLOCKS.size} ores + ${RAW_ITEMS.size + INGOT_ITEMS.size + DUST_ITEMS.size + PLATE_ITEMS.size} items declared"
+                "${ORE_BLOCKS.size} ores + ${RAW_ITEMS.size + INGOT_ITEMS.size + DUST_ITEMS.size + PLATE_ITEMS.size} items declared",
         )
 
         println(
             "[techmod] machine: press block entity declared — tick is bound to the block, " +
-                "one cycle = $PRESS_TICKS_PER_CYCLE server ticks"
+                "one cycle = $PRESS_TICKS_PER_CYCLE server ticks",
         )
     }
 }

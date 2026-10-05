@@ -208,7 +208,7 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider {
             val damagePerBlock = tool.javaClass.getMethod("damagePerBlock").invoke(tool)
             println(
                 "[oml_testmod] component probe [test_sword]: tool(default_mining_speed=$defaultSpeed, " +
-                    "damage_per_block=$damagePerBlock, rules=${rules?.size})"
+                    "damage_per_block=$damagePerBlock, rules=${rules?.size})",
             )
             E2E.check(
                 "content.item_components.attributes",
@@ -305,10 +305,12 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider {
             val byKey = recipeManager.javaClass.methods.firstOrNull {
                 it.name == "byKey" && it.parameterTypes[0] == resourceKey
             } ?: error("byKey(ResourceKey) not found on ${recipeManager.javaClass.name}")
+
             fun recipeLoaded(id: String): Boolean {
                 val key = keyCreate.invoke(null, recipeRegistryKey, identifierOf.invoke(null, "techmod", id))
                 return (byKey.invoke(recipeManager, key) as java.util.Optional<*>).isPresent
             }
+
             val recipesOk = recipeLoaded("techmod_raw_copper") && recipeLoaded("techmod_raw_tin")
             E2E.check("recipe.loaded", recipesOk, "techmod smelting recipes missing from the recipe manager")
 
@@ -324,12 +326,18 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider {
             val containsKey = featureRegistry.javaClass.methods.firstOrNull {
                 it.name == "containsKey" && it.parameterTypes[0] == resourceKey
             } ?: error("containsKey(ResourceKey) not found on ${featureRegistry.javaClass.name}")
+
             fun oreFeatureLoaded(id: String): Boolean {
                 val key = keyCreate.invoke(null, placedFeatureKey, identifierOf.invoke(null, "techmod", id))
                 return containsKey.invoke(featureRegistry, key) as Boolean
             }
+
             val featuresOk = oreFeatureLoaded("ore_copper_ore") && oreFeatureLoaded("ore_tin_ore")
-            E2E.check("worldgen.ore_feature", featuresOk, "techmod placed features missing from the worldgen registries")
+            E2E.check(
+                "worldgen.ore_feature",
+                featuresOk,
+                "techmod placed features missing from the worldgen registries",
+            )
         }.onFailure {
             serverDataProbed = true
             E2E.check("recipe.loaded", false, "probe failed: ${it.javaClass.simpleName}: ${it.message}")

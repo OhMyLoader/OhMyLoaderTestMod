@@ -40,7 +40,7 @@ object MergeProbe {
         if (shadowLogged.compareAndSet(false, true)) {
             println(
                 "[oml_testmod] class merge: instance handler this semantics in effect -- " +
-                    "this.launchedVersion = ${launchedVersion ?: "null"}"
+                    "this.launchedVersion = ${launchedVersion ?: "null"}",
             )
         }
     }
@@ -64,7 +64,7 @@ object MergeProbe {
         if (constantLogged.compareAndSet(false, true)) {
             println(
                 "[oml_testmod] class merge: instance @ModifyConstant in effect -- $where, received constant = $value" +
-                    " (identity return; game behavior unchanged)"
+                    " (identity return; game behavior unchanged)",
             )
         }
     }
@@ -85,7 +85,7 @@ object MergeProbe {
         if (ctorInitLogged.compareAndSet(false, true)) {
             println(
                 "[oml_testmod] class merge: constructor merge in effect -- instance field initializer in the mixin constructor = $value" +
-                    " (would be 0 without the merge)"
+                    " (would be 0 without the merge)",
             )
         }
     }
@@ -132,7 +132,7 @@ object MergeProbe {
         println(
             "[oml_testmod] access rewrite: Minecraft.proxy is now ${Modifier.toString(field.modifiers)}" +
                 " (was private final); publicLookup read handle = " +
-                if (handle.isSuccess) "usable" else "unusable (${handle.exceptionOrNull()?.javaClass?.simpleName})"
+                if (handle.isSuccess) "usable" else "unusable (${handle.exceptionOrNull()?.javaClass?.simpleName})",
         )
         E2E.check(
             "inject.access_widening",
@@ -209,7 +209,7 @@ object MergeProbe {
         if (returnValueLogged.compareAndSet(false, true)) {
             println(
                 "[oml_testmod] class merge: @ModifyReturnValue in effect -- $where, received return value = $value" +
-                    " (identity return; game behavior unchanged)"
+                    " (identity return; game behavior unchanged)",
             )
         }
     }
@@ -229,7 +229,7 @@ object MergeProbe {
         if (expressionValueLogged.compareAndSet(false, true)) {
             println(
                 "[oml_testmod] class merge: @ModifyExpressionValue in effect -- $where, received produced value = $value" +
-                    " (identity return; game behavior unchanged)"
+                    " (identity return; game behavior unchanged)",
             )
         }
     }
@@ -278,7 +278,7 @@ object MergeProbe {
         // pack tends to get wrong. The synthesized ids exist in no file at all and the texture is a real
         // jar file, so a served hit must report `oml_mod_resources` as its source pack.
         out += "[oml_testmod] resource pack getResource (by id: synthesized block assets, jar assets):"
-        for ((check, id) in listOf(
+        for ([check, id] in listOf(
             "pack.byid.blockstate" to "oml_testmod:blockstates/test_block.json",
             "pack.byid.model" to "oml_testmod:models/block/test_block.json",
             "pack.byid.item_def" to "oml_testmod:items/test_block.json",
@@ -311,7 +311,7 @@ object MergeProbe {
         // and how 26.3 finds sounds (Sound.SOUND_LISTER = FileToIdConverter("sounds", ".ogg")), particles,
         // atlas sprites and blockstates/items.
         out += "[oml_testmod] resource pack listResources (discovery by directory — this is the path a mod's sounds, atlas sprites and overrides depend on):"
-        for ((check, dir) in listOf(
+        for ([check, dir] in listOf(
             "pack.dir.blockstates" to "blockstates",
             "pack.dir.models_block" to "models/block",
             "pack.dir.items" to "items",
@@ -343,7 +343,7 @@ object MergeProbe {
         if (logged.compareAndSet(false, true)) {
             println(
                 "[oml_testmod] class merge: @Overwrite method body executed, " +
-                    "@Unique static field (initial value from the spliced <clinit>) = $mergedStaticField"
+                    "@Unique static field (initial value from the spliced <clinit>) = $mergedStaticField",
             )
         }
     }

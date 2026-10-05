@@ -36,7 +36,7 @@ public class MinecraftMergeMixin {
     @Unique
     private final int omlCtorInit = 1234;
     /**
-     * A private field in the target class; {@code @Shadow} merely declares that it exists and it
+     * A private field in the target class; {@code @Shadow} merely declares that it exists, and it
      * is not merged in a second time.
      */
     @Shadow

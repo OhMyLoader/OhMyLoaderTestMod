@@ -1,6 +1,8 @@
 package org.ohmyloader.testmod
 
 import org.ohmyloader.api.event.Events
+import org.ohmyloader.testmod.E2E.gameLoader
+import org.ohmyloader.testmod.E2E.quitClient
 import java.io.FileDescriptor
 import java.io.FileOutputStream
 import java.io.PrintStream
@@ -103,13 +105,16 @@ object E2E {
         )
 
         val timeout = System.getProperty("oml.e2e.timeoutSeconds")?.toIntOrNull() ?: 300
-        Thread({
-            Thread.sleep(timeout * 1000L)
-            // halt(), not exit(): shutdown hooks would run the verdict first and report PASS on a
-            // run that never got anywhere, which is exactly the failure this watchdog exists for.
-            emit("$PREFIX RESULT FAIL reason=timeout after ${timeout}s")
-            Runtime.getRuntime().halt(1)
-        }, "oml-e2e-watchdog").apply { isDaemon = true }.start()
+        Thread(
+            {
+                Thread.sleep(timeout * 1000L)
+                // halt(), not exit(): shutdown hooks would run the verdict first and report PASS on a
+                // run that never got anywhere, which is exactly the failure this watchdog exists for.
+                emit("$PREFIX RESULT FAIL reason=timeout after ${timeout}s")
+                Runtime.getRuntime().halt(1)
+            },
+            "oml-e2e-watchdog",
+        ).apply { isDaemon = true }.start()
 
         val ticks = System.getProperty("oml.e2e.ticks")?.toIntOrNull() ?: return
         // Both sides register both events: only the current side's tick ever fires, so one counter
@@ -148,7 +153,7 @@ object E2E {
         val missing = missingExpected()
         println(
             "$PREFIX READY ticks=$ticksSeen side=$side" +
-                if (missing.isEmpty()) "" else " incomplete=${missing.size} (${missing.joinToString(",")})"
+                if (missing.isEmpty()) "" else " incomplete=${missing.size} (${missing.joinToString(",")})",
         )
         if (side == "client") quitClient()
     }
@@ -164,7 +169,8 @@ object E2E {
      */
     private fun printClientState() {
         runCatching {
-            val minecraft = gameLoader().loadClass("net.minecraft.client.Minecraft").getMethod("getInstance").invoke(null)
+            val minecraft =
+                gameLoader().loadClass("net.minecraft.client.Minecraft").getMethod("getInstance").invoke(null)
             val mcClass = minecraft.javaClass
             val gui = mcClass.getField("gui").get(minecraft)
             val screen = gui.javaClass.getMethod("screen").invoke(gui)

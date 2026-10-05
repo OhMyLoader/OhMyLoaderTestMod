@@ -1,6 +1,6 @@
 # OhMyLoader Test Mod
 
-OhMyLoader 端到端验证模组：以**外部 mod 工程的身份**应用 `org.ohmyloader.gradle` 插件，跑通 loader 的完整消费路径——本工程能跑，
+OhMyLoader 端到端验证模组：以 **外部 mod 工程的身份**应用 `org.ohmyloader.gradle` 插件，跑通 loader 的完整消费路径——本工程能跑，
 外部 mod 工程就能跑，发布面的缺陷在这里暴露而不是在用户的发布日。
 
 ## 构建
