@@ -61,7 +61,10 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider {
         E2E.install()
         E2E.expect("content.declared", "event.tick")
         if (isServerSide()) {
-            E2E.expect("content.item_components", "recipe.loaded", "worldgen.ore_feature", "command.executed")
+            E2E.expect(
+                "content.item_components", "recipe.loaded", "worldgen.ore_feature",
+                "command.executed", "config.generated",
+            )
         } else {
             // Deliberately not expected here, because a session that stops at the main menu does not
             // reach them: `event.gui_open` needs a screen swap and `merge.overwrite_static_field` needs
@@ -355,6 +358,11 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider {
                 it.name == "performPrefixedCommand" && it.parameterCount == 2
             }
             perform.invoke(gameCommands, commandSource, "oml_e2e_hello")
+
+            // config.generated — the techmod config file was generated with its declared defaults
+            val configFile = java.io.File("config/techmod.toml")
+            val configOk = configFile.isFile && "ping_prefix" in configFile.readText()
+            E2E.check("config.generated", configOk, "config/techmod.toml missing or incomplete")
         }.onFailure {
             serverDataProbed = true
             E2E.check("recipe.loaded", false, "probe failed: ${it.javaClass.simpleName}: ${it.message}")

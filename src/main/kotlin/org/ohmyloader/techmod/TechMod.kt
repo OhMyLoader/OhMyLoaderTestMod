@@ -104,17 +104,28 @@ class TechMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider {
     override fun declareCommands(commands: OMLCommandRegistry) {
         // M3 / T-3.1：命令注册 API 的打样——根命令 + 类型化参数两种形态
         commands.register("techmod_ping") {
-            executes { source -> println("[techmod] pong (executed by ${source.name})") }
+            executes { source ->
+                val prefix = context.config.getString("ping_prefix")
+                println("[techmod] $prefix (executed by ${source.name})")
+            }
             argument("loud", OMLArgumentType.BOOLEAN) {
                 executes { source ->
-                    val message = if (source.getBoolean("loud")) "PONG!!" else "pong"
+                    val prefix = context.config.getString("ping_prefix")
+                    val loud = source.getBoolean("loud") || context.config.getBoolean("loud_by_default")
+                    val message = if (loud) prefix.uppercase() + "!!" else prefix
                     println("[techmod] $message (executed by ${source.name})")
                 }
             }
         }
     }
 
+    private lateinit var context: ModContext
+
     override fun onInitialize(context: ModContext) {
+        this.context = context
+        // M3 / T-3.2：配置 API 的打样——声明条目（首次读取时生成 config/techmod.toml），命令读取
+        context.config.define("ping_prefix", "pong", "Prefix of the /techmod_ping reply")
+        context.config.define("loud_by_default", false, "Whether /techmod_ping shouts by default")
         println(
             "[techmod] init: id=${context.id} version=${context.version}, " +
                 "${ORE_BLOCKS.size} ores + ${RAW_ITEMS.size + INGOT_ITEMS.size + DUST_ITEMS.size + PLATE_ITEMS.size} items declared",
