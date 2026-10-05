@@ -8,6 +8,8 @@ import org.ohmyloader.api.command.OMLCommandRegistry
 import org.ohmyloader.api.content.ContentRegistry
 import org.ohmyloader.api.content.OMLContentProvider
 import org.ohmyloader.api.event.Events
+import org.ohmyloader.api.network.OMLNetworkProvider
+import org.ohmyloader.api.network.OMLNetworkRegistry
 
 /**
  * The first end-to-end test mod written from a mod author's perspective using OML.
@@ -15,7 +17,7 @@ import org.ohmyloader.api.event.Events
  * traceable.
  */
 @Mod(id = "oml_testmod", name = "OML Test Mod", version = "0.1.0")
-class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider {
+class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider, OMLNetworkProvider {
 
     private var ticks = 0
     private var serverTicks = 0
@@ -23,6 +25,8 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider {
     private var guiEvents = 0
     private var probeAttempts = 0
     private var componentsReadOnce = false
+
+    override fun declareNetwork(network: OMLNetworkRegistry) = NetworkProbe.declareNetwork(network)
 
     override fun declareCommands(commands: OMLCommandRegistry) {
         commands.register("oml_e2e_hello") {
@@ -63,7 +67,7 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider {
         if (isServerSide()) {
             E2E.expect(
                 "content.item_components", "recipe.loaded", "worldgen.ore_feature",
-                "command.executed", "config.generated",
+                "command.executed", "config.generated", "network.unknown_player",
             )
         } else {
             // Deliberately not expected here, because a session that stops at the main menu does not
@@ -85,7 +89,11 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider {
             )
             // AC-1 includes joining a world, and the run says whether it was asked to: the harness
             // cannot create one, so it only expects the join when it arranged for a save to exist.
-            if (System.getProperty("oml.e2e.quickPlay") != null) E2E.expect("event.world_load")
+            // The payload round trip needs that connection too — singleplayer's client and integrated
+            // server are two ends of a real loopback, so the join is what makes the trip observable.
+            if (System.getProperty("oml.e2e.quickPlay") != null) {
+                E2E.expect("event.world_load", "network.server_received", "network.round_trip")
+            }
         }
 
         // the access-flag rewrite is done by the adapter's DSL rule; here it is observed from the mod side
@@ -94,6 +102,7 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider {
         Events.CLIENT_TICK.register {
             E2E.hit("event.tick")
             ticks++
+            NetworkProbe.tickClientSide()
             MergeProbe.reportResourceInjection()
             if (ticks % 200 == 0) {
                 println("[oml_testmod] ClientTickEvent received $ticks times")
@@ -109,6 +118,7 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider {
             // readable. The probe retries until the bake has run.
             probeItemComponents()
             probeServerData()
+            NetworkProbe.tickServerSide()
             if (serverTicks == 1) {
                 println("[oml_testmod] ServerTickEvent active (OML has hooked the server main loop)")
             }
@@ -134,6 +144,7 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider {
 
         Events.WORLD_LOAD.register { event ->
             E2E.hit("event.world_load")
+            if (event.world != null) NetworkProbe.worldLoaded()
             println("[oml_testmod] WorldLoadEvent: world=${event.world?.platform?.javaClass?.name ?: "null (disconnected)"}")
         }
 
