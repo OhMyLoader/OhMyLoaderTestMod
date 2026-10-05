@@ -3,6 +3,9 @@ package org.ohmyloader.techmod
 import org.ohmyloader.api.Mod
 import org.ohmyloader.api.ModContext
 import org.ohmyloader.api.OMLModInitializer
+import org.ohmyloader.api.command.OMLArgumentType
+import org.ohmyloader.api.command.OMLCommandProvider
+import org.ohmyloader.api.command.OMLCommandRegistry
 import org.ohmyloader.api.content.ContentRegistry
 import org.ohmyloader.api.content.OMLContentProvider
 
@@ -19,7 +22,7 @@ import org.ohmyloader.api.content.OMLContentProvider
  * 作为缺口清单的代码锚点。
  */
 @Mod(id = "techmod", name = "Tech Mod", version = "0.1.0")
-class TechMod : OMLModInitializer, OMLContentProvider {
+class TechMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider {
 
     companion object {
         // M1 材料链声明：id 在这里集中列出，材料化产物在 onInitialize 后由句柄持有
@@ -96,6 +99,19 @@ class TechMod : OMLModInitializer, OMLContentProvider {
             pattern = listOf("III", "I I", "III"),
             key = mapOf('I' to "minecraft:iron_ingot"),
         )
+    }
+
+    override fun declareCommands(commands: OMLCommandRegistry) {
+        // M3 / T-3.1：命令注册 API 的打样——根命令 + 类型化参数两种形态
+        commands.register("techmod_ping") {
+            executes { source -> println("[techmod] pong (executed by ${source.name})") }
+            argument("loud", OMLArgumentType.BOOLEAN) {
+                executes { source ->
+                    val message = if (source.getBoolean("loud")) "PONG!!" else "pong"
+                    println("[techmod] $message (executed by ${source.name})")
+                }
+            }
+        }
     }
 
     override fun onInitialize(context: ModContext) {

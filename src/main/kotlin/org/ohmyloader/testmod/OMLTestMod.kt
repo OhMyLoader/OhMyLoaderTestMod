@@ -3,6 +3,8 @@ package org.ohmyloader.testmod
 import org.ohmyloader.api.Mod
 import org.ohmyloader.api.ModContext
 import org.ohmyloader.api.OMLModInitializer
+import org.ohmyloader.api.command.OMLCommandProvider
+import org.ohmyloader.api.command.OMLCommandRegistry
 import org.ohmyloader.api.content.ContentRegistry
 import org.ohmyloader.api.content.OMLContentProvider
 import org.ohmyloader.api.event.Events
@@ -13,7 +15,7 @@ import org.ohmyloader.api.event.Events
  * traceable.
  */
 @Mod(id = "oml_testmod", name = "OML Test Mod", version = "0.1.0")
-class OMLTestMod : OMLModInitializer, OMLContentProvider {
+class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider {
 
     private var ticks = 0
     private var serverTicks = 0
@@ -21,6 +23,12 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider {
     private var guiEvents = 0
     private var probeAttempts = 0
     private var componentsReadOnce = false
+
+    override fun declareCommands(commands: OMLCommandRegistry) {
+        commands.register("oml_e2e_hello") {
+            executes { E2E.hit("command.executed") }
+        }
+    }
 
     override fun declareContent(registry: ContentRegistry) {
         val block = registry.declareBlock("test_block")
@@ -53,7 +61,7 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider {
         E2E.install()
         E2E.expect("content.declared", "event.tick")
         if (isServerSide()) {
-            E2E.expect("content.item_components", "recipe.loaded", "worldgen.ore_feature")
+            E2E.expect("content.item_components", "recipe.loaded", "worldgen.ore_feature", "command.executed")
         } else {
             // Deliberately not expected here, because a session that stops at the main menu does not
             // reach them: `event.gui_open` needs a screen swap and `merge.overwrite_static_field` needs
@@ -338,6 +346,15 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider {
                 featuresOk,
                 "techmod placed features missing from the worldgen registries",
             )
+
+            // command.executed — dispatch our own probe command through the live dispatcher; the
+            // hook-driven registration is lazy on the first command, and this IS that first one
+            val gameCommands = server.javaClass.getMethod("getCommands").invoke(server)
+            val commandSource = server.javaClass.getMethod("createCommandSourceStack").invoke(server)
+            val perform = gameCommands.javaClass.methods.first {
+                it.name == "performPrefixedCommand" && it.parameterCount == 2
+            }
+            perform.invoke(gameCommands, commandSource, "oml_e2e_hello")
         }.onFailure {
             serverDataProbed = true
             E2E.check("recipe.loaded", false, "probe failed: ${it.javaClass.simpleName}: ${it.message}")
