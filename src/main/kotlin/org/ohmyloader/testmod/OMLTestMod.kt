@@ -481,6 +481,16 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider, OM
             }
             perform.invoke(gameCommands, commandSource, "oml_e2e_hello")
 
+            // modlist.registered — the loader's built-in /oml command joined the same dispatcher;
+            // dispatching it proves the listing runs over the real mod state. The dispatcher holds
+            // the tree behind getRoot(); getChild lives on the node, not the dispatcher.
+            val dispatcher = gameCommands.javaClass.getMethod("getDispatcher").invoke(gameCommands)
+            val rootNode = dispatcher.javaClass.getMethod("getRoot").invoke(dispatcher)
+            val omlNode = rootNode.javaClass.methods.first { it.name == "getChild" }
+                .invoke(rootNode, "oml")
+            E2E.check("modlist.registered", omlNode != null, "the built-in /oml command is not registered")
+            perform.invoke(gameCommands, commandSource, "oml mods")
+
             // config.generated — the techmod config file was generated with its declared defaults
             val configFile = java.io.File("config/techmod.toml")
             val configOk = configFile.isFile && "ping_prefix" in configFile.readText()
