@@ -19,7 +19,8 @@ import org.ohmyloader.api.network.OMLNetworkRegistry
  * traceable.
  */
 @Mod(id = "oml_testmod", name = "OML Test Mod", version = "0.1.0")
-class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider, OMLNetworkProvider, OMLKeyBindingProvider {
+class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider, OMLNetworkProvider,
+    OMLKeyBindingProvider {
 
     private var ticks = 0
     private var serverTicks = 0

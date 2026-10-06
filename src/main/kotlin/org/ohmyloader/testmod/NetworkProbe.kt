@@ -1,10 +1,6 @@
 package org.ohmyloader.testmod
 
-import org.ohmyloader.api.network.OMLNetwork
-import org.ohmyloader.api.network.OMLNetworkRegistry
-import org.ohmyloader.api.network.OMLPacketBuffer
-import org.ohmyloader.api.network.OMLPayloadCodec
-import org.ohmyloader.api.network.OMLPayloadType
+import org.ohmyloader.api.network.*
 import kotlin.random.Random
 
 /**
@@ -62,7 +58,11 @@ object NetworkProbe {
     /** Declared from the mod entry point; both directions exist so both sides' hooks are exercised. */
     fun declareNetwork(network: OMLNetworkRegistry) {
         network.clientToServer(PING) { value, context ->
-            E2E.check("network.server_received", value.label == LABEL && value.nonce > 0, "decoded ${value.nonce}/${value.label}")
+            E2E.check(
+                "network.server_received",
+                value.label == LABEL && value.nonce > 0,
+                "decoded ${value.nonce}/${value.label}",
+            )
             val sender = context.senderName
             if (sender == null) {
                 E2E.check("network.round_trip", false, "the server saw no player name on this connection")
@@ -72,7 +72,11 @@ object NetworkProbe {
         }
         network.serverToClient(PONG) { value, _ ->
             echoed = true
-            E2E.check("network.round_trip", value.nonce == nonce && value.label == LABEL, "echoed ${value.nonce}/${value.label}, sent $nonce/$LABEL")
+            E2E.check(
+                "network.round_trip",
+                value.nonce == nonce && value.label == LABEL,
+                "echoed ${value.nonce}/${value.label}, sent $nonce/$LABEL",
+            )
         }
     }
 
@@ -88,7 +92,11 @@ object NetworkProbe {
         if (outcome.isSuccess) return
         sendAttempts++
         if (sendAttempts >= 200) {
-            E2E.check("network.round_trip", false, "no client-to-server path after 200 ticks: ${outcome.exceptionOrNull()}")
+            E2E.check(
+                "network.round_trip",
+                false,
+                "no client-to-server path after 200 ticks: ${outcome.exceptionOrNull()}",
+            )
         }
     }
 
@@ -97,6 +105,10 @@ object NetworkProbe {
         if (serverProbed) return
         serverProbed = true
         val outcome = runCatching { OMLNetwork.sendToPlayer(PONG, Pong(1, LABEL), "oml_e2e_absent_player") }
-        E2E.check("network.unknown_player", outcome.isSuccess, "sending to an absent player threw ${outcome.exceptionOrNull()}")
+        E2E.check(
+            "network.unknown_player",
+            outcome.isSuccess,
+            "sending to an absent player threw ${outcome.exceptionOrNull()}",
+        )
     }
 }
