@@ -10,16 +10,12 @@ import org.ohmyloader.api.content.ContentRegistry
 import org.ohmyloader.api.content.OMLContentProvider
 
 /**
- * OML 打样科技模组（M1：材料链）。
+ * The reference technology mod: the sample that has to stay entirely inside `oml-api`.
  *
- * 规则（打样的目的所在）：
- * 1. 全程只用 oml-api —— 不碰 platform 逃生舱；
- * 2. 每遇到一个 API 缺口，记入 README-TECHMOD.md 的缺口清单，不在 mod 里绕过。
- *
- * M2 范围：在 M1 材料链之上加入生成（矿石自然生成）与机器（压制机：BlockEntity tick +
- * 持久进度）——M2 之前卡死的两条加工链现已可声明。
- * 刻意超出当前 ContentRegistry 能力的部分（掉落、配方、世界生成）在声明处用 `Missing:` 注释标注，
- * 作为缺口清单的代码锚点。
+ * Two rules when editing this file: never touch the `platform` escape hatch, and record every API
+ * gap met here in README-TECHMOD.md's gap list instead of working around it inside the mod. Parts
+ * deliberately beyond what [ContentRegistry] can express carry a `Missing:` comment at their
+ * declaration site — that is the gap list's code anchor.
  */
 @Mod(
     id = "techmod",
@@ -30,7 +26,7 @@ import org.ohmyloader.api.content.OMLContentProvider
 class TechMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider {
 
     companion object {
-        // M1 材料链声明：id 在这里集中列出，材料化产物在 onInitialize 后由句柄持有
+        // The material chain's ids, in one place; the handles come from materialization.
         val ORE_BLOCKS = listOf("copper_ore", "tin_ore")
         val RAW_ITEMS = listOf("raw_copper", "raw_tin")
         val INGOT_ITEMS = listOf("copper_ingot", "tin_ingot")
@@ -42,7 +38,7 @@ class TechMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider {
     }
 
     override fun declareContent(registry: ContentRegistry) {
-        // 矿石：石头强度等级，需要镐才掉落
+        // Ore: stone-tier hardness, and it drops nothing without the right tool
         for (ore in ORE_BLOCKS) {
             registry.declareBlock(ore) {
                 destroyTime = 3.0f
@@ -56,33 +52,33 @@ class TechMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider {
                 }
             }
         }
-        // 挖掘矿石掉落对应原矿（掉落表覆盖，数据包 JSON 经注入器应答）
+        // Mining an ore yields its raw form — a loot-table override, answered through the injected pack
         registry.declareBlockDrop("copper_ore", "raw_copper")
         registry.declareBlockDrop("tin_ore", "raw_tin")
 
-        // 原矿：挖掘矿石的产物
+        // Raw: what mining produces
         for (raw in RAW_ITEMS) {
             registry.declareItem(raw)
         }
 
-        // 锭：原矿熔炼产物（熔炼配方，数据包 JSON 经注入器应答）
+        // Ingot: raw smelted in a furnace — a recipe JSON through the injected pack
         for ([raw, ingot] in RAW_ITEMS.zip(INGOT_ITEMS)) {
             registry.declareItem(ingot)
             registry.declareSmelting(input = raw, result = ingot, experience = 0.7)
         }
 
-        // 粉：原矿粉碎产物（Missing: 手动配方/磨粉机；M2 机器产出）
+        // Dust: raw crushed. Missing: manual recipe / crushing machine — only the machine produces it
         for (dust in DUST_ITEMS) {
             registry.declareItem(dust)
         }
 
-        // 板：锭压制产物（Missing: 压制配方；M2 机器产出）
+        // Plate: ingot pressed. Missing: pressing recipe — the machine exists, taking its input does not
         for (plate in PLATE_ITEMS) {
             registry.declareItem(plate)
         }
 
-        // 压制机：M2 BlockEntity API 的验收件——tick 绑定在方块上（不再挂全局 SERVER_TICK），
-        // 进度存 OMLBlockData 随存档持久化；板块的产出途径仍是缺口（需要背包 API，见缺口清单）
+        // The press exercises the BlockEntity API: its tick belongs to the block rather than to a
+        // global SERVER_TICK handler, and its progress persists in OMLBlockData with the world.
         registry.declareBlock("press") {
             destroyTime = 3.5f
             explosionResistance = 6.0f
@@ -107,7 +103,7 @@ class TechMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider {
     }
 
     override fun declareCommands(commands: OMLCommandRegistry) {
-        // M3 / T-3.1：命令注册 API 的打样——根命令 + 类型化参数两种形态
+        // Root command and a typed argument — the two shapes the command API exposes.
         commands.register("techmod_ping") {
             executes { source ->
                 val prefix = context.config.getString("ping_prefix")
@@ -128,7 +124,7 @@ class TechMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider {
 
     override fun onInitialize(context: ModContext) {
         this.context = context
-        // M3 / T-3.2：配置 API 的打样——声明条目（首次读取时生成 config/techmod.toml），命令读取
+        // Declared entries: config/techmod.toml is generated on the first read, the command reads them.
         context.config.define("ping_prefix", "pong", "Prefix of the /techmod_ping reply")
         context.config.define("loud_by_default", false, "Whether /techmod_ping shouts by default")
         println(
