@@ -8,6 +8,8 @@ OhMyLoader 端到端验证模组：以 **外部 mod 工程的身份**应用 `org
 ```bash
 # 在 OhMyLoader 仓库执行：
 ./gradlew publishToMavenLocal
+# 插件本身有改动时，在 OhMyLoaderGradle 仓库执行：
+./gradlew publishToMavenLocal
 # 回到本仓库：
 ./gradlew build
 ```
@@ -30,4 +32,4 @@ oml {
 ## API 稳定性
 
 `oml-api` 对 mod 作者的兼容性契约（三层稳定性、版本号策略、弃用方式）见
-[oml-api/README.md](oml-api/README.md)。
+[oml-api/README.md](https://github.com/OhMyLoader/OhMyLoader/blob/main/oml-api/README.md)（在 loader 仓库）。
