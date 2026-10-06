@@ -9,36 +9,15 @@ import java.io.PrintStream
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * Machine-readable verdict for the end-to-end runs.
- *
- * Every probe used to be a print statement: a regression produced one line in a log nobody reads, and
- * nothing ever looked at the game automatically. Probes now report here, and the run ends with two
- * kinds of line a script can grep:
+ * Machine-readable verdict for the end-to-end runs: probes report here, and a script gates on the
+ * RESULT line — the exit code is only the secondary signal. The run knobs are the `oml.e2e.*`
+ * system properties, documented where each one is read.
  *
  * ```
- * [OML-E2E] READY ticks=200 side=server          the session did what the run was supposed to do
- * [OML-E2E] FAILED <check-name> (<detail>)       one per failed or never-reported check
+ * [OML-E2E] READY ticks=200 side=server      the session did what the run was supposed to do
+ * [OML-E2E] FAILED <check-name> (<detail>)   one per failed or never-reported check
  * [OML-E2E] RESULT PASS|FAIL checks=<n> failures=<m>
  * ```
- *
- * The verdict is emitted from a shutdown hook — the session ends by the server receiving `/stop` or
- * the client quitting, and neither path can be relied on to reach mod code afterwards. The hook only
- * prints (halting from inside a shutdown hook deadlocks the JVM); the gate reads the RESULT line, and
- * the watchdog and quit-fallback paths still halt non-zero as a secondary signal.
- *
- * Declared expectations are the point: a check that must happen and never does is a failure, not a
- * silent skip. Without a declared expectation this file would only be a prettier println.
- *
- * Properties (without any of them the mod behaves exactly as before):
- * - `oml.e2e=1` — treat this run as an E2E run (verdict enforced through the exit code).
- * - `oml.e2e.ticks=N` — after N CLIENT_TICK / SERVER_TICK dispatches [READY] is printed once the
- *   declared expectations have all reported; on the client the game then quits itself.
- * - `oml.e2e.graceSeconds=N` — how long past `ticks` the driver keeps waiting for the expectations
- *   (default 120, wall-clock). The client's resource reload and world load finish seconds after the
- *   first ticks, so ending on the count alone would cut the pack probes off.
- * - `oml.e2e.timeoutSeconds=N` — watchdog (default 300): a session that never finishes fails.
- * - `oml.e2e.expectExtra=<name>` — self-test of the gate: an expectation nothing reports, so a
- *   working gate must fail. Used by CI to prove the gate can go red before trusting it green.
  */
 object E2E {
 
@@ -58,6 +37,10 @@ object E2E {
         rawOut.println(line)
     }
 
+    /**
+     * `oml.e2e=1` — treat this run as an E2E run, so the verdict is enforced through the exit code.
+     * Unset, every entry point here stays inert and the mod behaves like a normal one.
+     */
     private val enabled = System.getProperty("oml.e2e") != null
     private val lock = Any()
     private val expected = LinkedHashSet<String>()
@@ -94,7 +77,9 @@ object E2E {
         if (!enabled) return
 
         System.getProperty("oml.e2e.expectExtra")?.takeIf { it.isNotBlank() }?.let {
-            expect(it) // self-test: nothing ever reports this, so the run must fail
+            // `oml.e2e.expectExtra=<name>`: an expectation nothing ever reports, so a working gate must
+            // go red. CI runs it to prove the gate can fail before trusting it green.
+            expect(it)
         }
 
         Runtime.getRuntime().addShutdownHook(
@@ -104,6 +89,7 @@ object E2E {
             Thread({ report() }, "oml-e2e-verdict"),
         )
 
+        // `oml.e2e.timeoutSeconds` (default 300): a session that never finishes has to fail, not hang the job.
         val timeout = System.getProperty("oml.e2e.timeoutSeconds")?.toIntOrNull() ?: 300
         Thread(
             {
@@ -116,6 +102,8 @@ object E2E {
             "oml-e2e-watchdog",
         ).apply { isDaemon = true }.start()
 
+        // `oml.e2e.ticks=N`: the minimum tick dispatches before [READY]; unset means no driver, only the
+        // verdict. [tick] covers what else it waits for.
         val ticks = System.getProperty("oml.e2e.ticks")?.toIntOrNull() ?: return
         // Both sides register both events: only the current side's tick ever fires, so one counter
         // and one driver serve the client and the dedicated server.
@@ -124,10 +112,11 @@ object E2E {
     }
 
     /**
-     * How long past the minimum dispatch count the driver waits for the expectations, in **wall-clock
-     * seconds**. Seconds rather than ticks on purpose: CLIENT_TICK is dispatched per frame, so a
-     * software-rendered CI runner produces a fraction of the dispatches a real GPU does, and a
-     * tick-denominated grace that is generous here would be far too short there.
+     * `oml.e2e.graceSeconds` (default 120): how long past the minimum dispatch count the driver keeps
+     * waiting for the expectations, in **wall-clock seconds**. Seconds rather than ticks on purpose:
+     * CLIENT_TICK is dispatched per frame, so a software-rendered CI runner produces a fraction of the
+     * dispatches a real GPU does, and a tick-denominated grace that is generous here would be far too
+     * short there.
      */
     private val graceSeconds =
         System.getProperty("oml.e2e.graceSeconds")?.toIntOrNull() ?: 120
@@ -161,9 +150,8 @@ object E2E {
     private fun elapsedSeconds(): Long = (System.nanoTime() - startedNanos) / 1_000_000_000
 
     /**
-     * Where the client sits, sampled every 600 ticks. A join that is still loading and a join that
-     * never started differ in nothing observable but this — the tick count alone grows the same way
-     * for both (on CI's software renderer a red run used to say only "world_load never reported").
+     * Where the client sits, sampled every 600 ticks: a join still loading and a join that never
+     * started are otherwise indistinguishable, the tick count alone growing the same way for both.
      * Both members are public on 26.3 (`Minecraft.level`, `Gui.screen()`), reached through
      * [gameLoader] per the parent-loader rule; any failure degrades to an "unavailable" line.
      */
@@ -210,18 +198,11 @@ object E2E {
     }
 
     /**
-     * Client-side self-quit: nothing outside the process can press the close button, and on a
-     * dedicated server there is no `getInstance()` at all — the harness stops that side with `/stop`
-     * once it has seen [READY].
+     * Client-side self-quit: nothing outside the process can press the close button, while the
+     * dedicated server is stopped by the harness with `/stop` once it has seen [READY].
      *
-     * `Minecraft` is resolved through [gameLoader], never by plain `Class.forName`: this mod's classes
-     * are loaded by the launcher's parent loader (they sit under `org.ohmyloader.`), and the parent
-     * carries the game *jar* without the game's *libraries* — defining the class there fails with
-     * `NoClassDefFoundError: com/mojang/brigadier/Message`. The probes document the same rule.
-     *
-     * `stop()` is the graceful path. If it ever fails, the fallback prints the verdict itself and
-     * halts: `halt` skips shutdown hooks, which is exactly why the verdict cannot be left to the hook
-     * on this path.
+     * If `stop()` ever fails the fallback prints the verdict and halts itself: `halt` skips shutdown
+     * hooks, which is exactly why this path cannot leave the verdict to the hook.
      */
     private fun quitClient() {
         val graceful = runCatching {
@@ -236,7 +217,12 @@ object E2E {
         }
     }
 
-    /** The game loader, through OMLCore: game libraries live on it and not on this class's loader. */
+    /**
+     * The game loader, asked of OMLCore reflectively (this mod compiles against oml-api only). The
+     * game's libraries sit on it and not on this class's loader, which carries the game *jar* alone —
+     * a plain `Class.forName("net.minecraft.client.Minecraft")` fails there with
+     * `NoClassDefFoundError: com/mojang/brigadier/Message`.
+     */
     private fun gameLoader(): ClassLoader =
         Class.forName("org.ohmyloader.core.OMLCore").getMethod("gameClassLoader").invoke(null) as ClassLoader
 
