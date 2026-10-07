@@ -943,15 +943,12 @@ object WorldProbe {
 
     /**
      * Writes motion into an entity and lets the game run with it: the read-back proves the write landed on
-     * the game's own vector, and a position that has moved (with the vector still non-zero) some ticks
-     * later proves the game adopted it.
+     * the game's own vector, a position that has moved with the vector still non-zero proves it was adopted.
      *
-     * A projectile carries the measurement because it has no movement code of its own; a living entity
-     * recomputes the vector from its walking input every tick, so a write into a mob is integrated on the
-     * tick it lands and gone on the next. The launch happens in **verified open air**: the game removes a
-     * projectile that meets terrain, and a shot stopped by a hill would measure the terrain instead of the
-     * write. A shot that disappears before its window closes is re-driven, bounded, because the write
-     * itself already read back.
+     * A projectile carries this because it has no movement code of its own; a living entity recomputes the
+     * vector from its walking input every tick. The launch needs verified open air — the game removes a
+     * projectile that meets terrain, so a shot stopped by a hill measures the hill rather than the write —
+     * and a shot that vanishes before the window closes is re-driven, bounded.
      */
     private fun probeMotion(player: OMLPlayer): Boolean {
         val world = player.world
