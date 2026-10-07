@@ -78,8 +78,21 @@ object WorldProbe {
     /** A dust colour in the game's own packed form: 0xRRGGBB. */
     private const val DUST_COLOR = 0xFF5500
 
-    /** X motion written to the spawned cow; the game has to integrate it into the position. */
+    /** X motion written to the launched snowball; the game has to integrate it into the position. */
     private const val MOTION_X = 0.6
+
+    /** Ticks the motion probe lets the game run with the vector before reading the drift. */
+    private const val MOTION_WINDOW_TICKS = 4
+
+    /** How often the motion probe may re-drive its launch before that counts as a defect. */
+    private const val MOTION_MAX_ATTEMPTS = 5
+
+    /** Where the motion probe starts looking for open air above the player, and how far it climbs. */
+    private const val SHOT_LIFT = 6.0
+    private const val SHOT_CLIMB = 24
+
+    /** Blocks along +x that have to read as air for a launch to be considered clear. */
+    private const val SHOT_RUN = 8
 
     /**
      * How long a driven damage may stay refused before that is a defect: long enough to outlast the game's
@@ -153,11 +166,14 @@ object WorldProbe {
     /** The projectile the motion probe writes into, discarded once the measurement reported. */
     private var projectile: OMLEntity? = null
 
-    /** X position the cow had when its motion was written, the baseline the game's integration is measured from. */
+    /** X position the shot had when its motion was written, the baseline the game's integration is measured from. */
     private var motionStart = Double.NaN
 
     /** Server tick the motion was written on; negative means the write has not happened yet. */
     private var motionTick = -1
+
+    /** How many launches the game removed before their window closed. */
+    private var motionAttempts = 0
 
     /** Ticks the control damage has been refused for, so a refusal becomes a verdict instead of silence. */
     private var controlWaits = 0
@@ -927,20 +943,31 @@ object WorldProbe {
 
     /**
      * Writes motion into an entity and lets the game run with it: the read-back proves the write landed on
-     * the game's own vector, and the vector still being non-zero (with the position having moved) some
-     * ticks later proves the game adopted it.
+     * the game's own vector, and a position that has moved (with the vector still non-zero) some ticks
+     * later proves the game adopted it.
      *
-     * A projectile carries the measurement because it has no movement code of its own. A mob cannot
-     * answer this question: a real run wrote 0.6 into a cow, saw it drift 0.55 blocks, and read
-     * `velocity.x == 0.0` four ticks later — the living entity recomputes the vector from its walking
-     * input every tick, which is the constraint the API documents rather than something OML overrides.
+     * A projectile carries the measurement because it has no movement code of its own; a living entity
+     * recomputes the vector from its walking input every tick, so a write into a mob is integrated on the
+     * tick it lands and gone on the next. The launch happens in **verified open air**: the game removes a
+     * projectile that meets terrain, and a shot stopped by a hill would measure the terrain instead of the
+     * write. A shot that disappears before its window closes is re-driven, bounded, because the write
+     * itself already read back.
      */
     private fun probeMotion(player: OMLPlayer): Boolean {
         val world = player.world
         val at = player.position
         val tick = OMLGame.server?.tickCount ?: return false
         if (motionTick < 0) {
-            val shot = world.spawnEntity(SNOWBALL, at.x + 2.5, at.y + 1.0, at.z + 2.5) ?: return false
+            if (motionAttempts > MOTION_MAX_ATTEMPTS) {
+                E2E.check(
+                    "api.entity_motion",
+                    false,
+                    "the shot was taken out of the world $MOTION_MAX_ATTEMPTS times around $at",
+                )
+                return true
+            }
+            val launch = openAirRun(world, at) ?: return false
+            val shot = world.spawnEntity(SNOWBALL, launch.first, launch.second, launch.third) ?: return false
             shot.velocity = OMLVec3(MOTION_X, 0.0, 0.0)
             val written = shot.velocity
             if (written != OMLVec3(MOTION_X, 0.0, 0.0)) {
@@ -952,7 +979,14 @@ object WorldProbe {
             motionTick = tick
             return false
         }
-        if (tick - motionTick < 4) return false
+        if (tick - motionTick < MOTION_WINDOW_TICKS) {
+            if (projectile?.removed == true) {
+                motionAttempts++
+                projectile = null
+                motionTick = -1
+            }
+            return false
+        }
         val shot = projectile ?: return false
         val moved = shot.position.x - motionStart
         val stillMoving = shot.velocity.x
@@ -964,6 +998,24 @@ object WorldProbe {
         )
         projectile = null
         return true
+    }
+
+    /**
+     * A launch point with a clear run along +x, climbed up from above the player's head until the blocks
+     * say air. Position 2.5 off the player is where a spawned entity lands anyway; the run is measured
+     * generously because the shot keeps travelling after the window closes.
+     */
+    private fun openAirRun(world: OMLWorld, at: OMLVec3): Triple<Double, Double, Double>? {
+        var y = at.y + SHOT_LIFT
+        repeat(SHOT_CLIMB) {
+            val level = y.toInt()
+            val clear = (0..SHOT_RUN).all { step ->
+                world.blockAt(OMLBlockPos((at.x + step).toInt(), level, at.z.toInt())) == AIR
+            }
+            if (clear) return Triple(at.x + 2.5, y, at.z + 2.5)
+            y += 1.0
+        }
+        return null
     }
 
     /**
