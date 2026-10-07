@@ -7,7 +7,9 @@ import org.ohmyloader.api.tick.OMLScheduler
 import org.ohmyloader.api.tick.OMLSide
 import org.ohmyloader.api.tick.OMLTask
 import org.ohmyloader.api.world.OMLBlockPos
+import org.ohmyloader.api.world.OMLEntity
 import org.ohmyloader.api.world.OMLPlayer
+import org.ohmyloader.api.world.OMLVec3
 import org.ohmyloader.api.wrapper.OMLWorld
 import java.util.Optional
 
@@ -29,6 +31,15 @@ object WorldProbe {
     private const val STONE = "minecraft:stone"
     private const val DIRT = "minecraft:dirt"
     private const val GLOWSTONE = "minecraft:glowstone"
+    private const val COW = "minecraft:cow"
+
+    /** A entity with no movement AI: nothing recomputes the motion written into it. */
+    private const val SNOWBALL = "minecraft:snowball"
+    private const val CHEST = "minecraft:chest"
+    private const val POOF = "minecraft:poof"
+
+    /** A particle whose type needs arguments built per spawn, so a bare id must be refused. */
+    private const val DUST = "minecraft:dust"
     private const val HURT_AMOUNT = 2f
 
     /** What the damage-rewrite handler writes over vanilla's number; the applied damage must scale with it. */
@@ -36,6 +47,16 @@ object WorldProbe {
 
     /** The game's own damage cooldown: an application inside this window is reduced by the previous one. */
     private const val DAMAGE_COOLDOWN_TICKS = 20
+
+    /** X motion written to the spawned cow; the game has to integrate it into the position. */
+    private const val MOTION_X = 0.6
+
+    /**
+     * How long a driven damage may stay refused before that is a defect: long enough to outlast the game's
+     * own damage cooldown and a just-joined player's invulnerability, short enough that a refused action
+     * reports instead of waiting out the run.
+     */
+    private const val REFUSED_DAMAGE_WAIT_TICKS = 40
 
     /** A probe whose precondition has not been met for this many ticks has a defect, not a slow world. */
     private const val GIVE_UP_TICKS = 600
@@ -72,6 +93,28 @@ object WorldProbe {
 
     /** Server tick the control damage landed on, the start of the cooldown that has to expire after it. */
     private var controlTick = -1
+
+    /** The cow the spawn probe created: the query and removal steps read and clean up that same entity. */
+    private var spawned: OMLEntity? = null
+
+    /** The projectile the motion probe writes into, discarded once the measurement reported. */
+    private var projectile: OMLEntity? = null
+
+    /** X position the cow had when its motion was written, the baseline the game's integration is measured from. */
+    private var motionStart = Double.NaN
+
+    /** Server tick the motion was written on; negative means the write has not happened yet. */
+    private var motionTick = -1
+
+    /** Ticks the control damage has been refused for, so a refusal becomes a verdict instead of silence. */
+    private var controlWaits = 0
+
+    /** The handle [Events.PLAYER_RESPAWNED] handed out while the respawn drive was armed. */
+    private var respawnObservation: OMLPlayer? = null
+
+    /** Armed only around the driven respawn, so a player respawning on their own cannot satisfy the check. */
+    @Volatile
+    private var driveRespawnWindow = false
 
     /** Everything [Events.BLOCK_USED] hands a handler, kept for the driving step to assert against. */
     private data class BlockUse(
@@ -198,6 +241,9 @@ object WorldProbe {
                 "${event.entity.typeId} entered the death routine at health ${event.entity.health} (${event.damageType})",
             )
         }
+        Events.PLAYER_RESPAWNED.register { event ->
+            if (driveRespawnWindow) respawnObservation = event.player
+        }
     }
 
     /** Client-side pass. */
@@ -234,6 +280,13 @@ object WorldProbe {
         step("event.block_used") { driveBlockUse(player) }
         step("event.item_used") { driveItemUse(player) }
         step("api.player_teleport") { probeTeleport(player) }
+        step("api.entity_spawn") { probeSpawn(player) }
+        step("api.entity_motion") { probeMotion(player) }
+        step("api.entity_removal") { probeRemoval(player) }
+        step("api.block_state") { probeBlockState(player) }
+        step("api.world_particles") { probeParticles(player) }
+        // Last: it kills the player and brings them back, so nothing may depend on the handle afterwards.
+        step("event.player_respawned") { driveRespawn(player) }
     }
 
     /** These run inside the game's tick dispatch, so a throw here would otherwise stop the game loop. */
@@ -628,6 +681,184 @@ object WorldProbe {
         return true
     }
 
+    /**
+     * Spawns a registered type beside the player and reads it back out of the level's own entity query,
+     * with the two rejections the API promises: an unregistered id and a client-side level.
+     */
+    private fun probeSpawn(player: OMLPlayer): Boolean {
+        val world = player.world
+        val at = player.position
+        val cow = world.spawnEntity(COW, at.x + 2.5, at.y + 1.0, at.z + 2.5) ?: return false
+        val unknown = world.spawnEntity("oml_testmod:absent", at.x, at.y, at.z)
+        val listed = world.entitiesOfType(COW)
+        val clientWorld = OMLGame.client?.world ?: return false
+        val clientRefused = clientWorld.spawnEntity(COW, at.x, at.y, at.z)
+        spawned = cow
+        E2E.check(
+            "api.entity_spawn",
+            unknown == null && cow.typeId == COW && !cow.removed &&
+                cow.world.dimensionId == world.dimensionId &&
+                listed.any { it.uuid == cow.uuid } && clientRefused == null,
+            "spawned ${cow.typeId} at ${cow.blockPosition} in ${cow.dimensionId}, the level lists " +
+                "${listed.size} of $COW, unregistered id -> $unknown, client-side level -> $clientRefused",
+        )
+        return true
+    }
+
+    /**
+     * Writes motion into an entity and lets the game run with it: the read-back proves the write landed on
+     * the game's own vector, and the vector still being non-zero (with the position having moved) some
+     * ticks later proves the game adopted it.
+     *
+     * A projectile carries the measurement because it has no movement code of its own. A mob cannot
+     * answer this question: a real run wrote 0.6 into a cow, saw it drift 0.55 blocks, and read
+     * `velocity.x == 0.0` four ticks later — the living entity recomputes the vector from its walking
+     * input every tick, which is the constraint the API documents rather than something OML overrides.
+     */
+    private fun probeMotion(player: OMLPlayer): Boolean {
+        val world = player.world
+        val at = player.position
+        val tick = OMLGame.server?.tickCount ?: return false
+        if (motionTick < 0) {
+            val shot = world.spawnEntity(SNOWBALL, at.x + 2.5, at.y + 1.0, at.z + 2.5) ?: return false
+            shot.velocity = OMLVec3(MOTION_X, 0.0, 0.0)
+            val written = shot.velocity
+            if (written != OMLVec3(MOTION_X, 0.0, 0.0)) {
+                E2E.check("api.entity_motion", false, "writing x=$MOTION_X read back $written")
+                return true
+            }
+            projectile = shot
+            motionStart = shot.position.x
+            motionTick = tick
+            return false
+        }
+        if (tick - motionTick < 4) return false
+        val shot = projectile ?: return false
+        val moved = shot.position.x - motionStart
+        val stillMoving = shot.velocity.x
+        E2E.check(
+            "api.entity_motion",
+            stillMoving > 0.0 && moved > 0.05,
+            "wrote x=$MOTION_X and read it back; ${tick - motionTick} ticks later x=$stillMoving, it drifted " +
+                "${"%.2f".format(moved)} blocks, removed=${shot.removed}",
+        )
+        projectile = null
+        return true
+    }
+
+    /**
+     * Takes the entity out of the level and checks the game's own query stops listing it. It waits for the
+     * motion step to report first: that step reads this same entity, and freeing it while the read is
+     * pending would leave the pending step with nothing to measure.
+     */
+    private fun probeRemoval(player: OMLPlayer): Boolean {
+        if ("api.entity_motion" !in reported) return false
+        val cow = spawned ?: return false
+        if (!cow.remove()) {
+            E2E.check("api.entity_removal", false, "the game refused to remove the spawned $COW")
+            return true
+        }
+        val stillListed = player.world.entitiesOfType(COW).any { it.uuid == cow.uuid }
+        E2E.check(
+            "api.entity_removal",
+            cow.removed && !stillListed,
+            "remove() reported ${cow.removed}, the level still lists it=$stillListed",
+        )
+        spawned = null
+        return true
+    }
+
+    /**
+     * The state layer: the id says chest, the properties say which way it faces. Written back through
+     * `setBlockState` and read from the level again, so the write is proved at the state rather than at the
+     * id — and an illegal value, an unknown property and an unloaded position all answer the way the API
+     * says they must.
+     */
+    private fun probeBlockState(player: OMLPlayer): Boolean {
+        val world = player.world
+        val feet = player.blockPosition
+        val ground = firstSolid(world, OMLBlockPos(feet.x, feet.y - 1, feet.z), 8) ?: return false
+        val original = world.blockStateAt(ground) ?: return false
+        val unloaded = world.blockStateAt(OMLBlockPos(feet.x + 100_000, feet.y, feet.z))
+        if (!world.setBlock(ground, CHEST)) return false
+        val placed = world.blockStateAt(ground) ?: return false
+        val rotated = placed.with("facing", "east")
+        val wrote = rotated != null && world.setBlockState(ground, rotated)
+        val readBack = world.blockStateAt(ground)
+        val badValue = placed.with("facing", "sideways")
+        val badProperty = placed.with("oml_nonsense", "east")
+        val restored = world.setBlockState(ground, original)
+        E2E.check(
+            "api.block_state",
+            placed.blockId == CHEST && "facing" in placed.properties && wrote &&
+                readBack?.value("facing") == "east" && readBack?.blockId == CHEST &&
+                badValue == null && badProperty == null && restored &&
+                world.blockStateAt(ground)?.blockId == original.blockId && unloaded == null,
+            "$ground ${original.blockId} ${original.properties} -> $CHEST facing=${placed.value("facing")} -> east " +
+                "read back ${readBack?.value("facing")} -> restored ${world.blockStateAt(ground)?.blockId}; " +
+                "illegal value -> $badValue, unknown property -> $badProperty, unloaded position -> $unloaded",
+        )
+        return true
+    }
+
+    /**
+     * Acceptance, not delivery: what this side of the game can be held to is that a registered simple
+     * particle goes out through the game's own sender, and that the two kinds it refuses — an unknown id,
+     * and a particle type that needs arguments a bare id cannot carry — come back false on either side.
+     */
+    private fun probeParticles(player: OMLPlayer): Boolean {
+        val world = player.world
+        val at = player.position
+        val accepted = world.spawnParticles(
+            POOF, at.x, at.y + 1.0, at.z, count = 5, offsetX = 0.5, offsetY = 0.5, offsetZ = 0.5,
+        )
+        val unknown = world.spawnParticles("oml_testmod:absent", at.x, at.y, at.z)
+        val needsArguments = world.spawnParticles(DUST, at.x, at.y, at.z)
+        val clientWorld = OMLGame.client?.world ?: return false
+        val clientSide = clientWorld.spawnParticles(POOF, at.x, at.y, at.z)
+        E2E.check(
+            "api.world_particles",
+            accepted && !unknown && !needsArguments && clientSide == false,
+            "$POOF accepted=$accepted, unknown id=$unknown, $DUST (needs arguments)=$needsArguments, " +
+                "client-side level=$clientSide",
+        )
+        return true
+    }
+
+    /**
+     * Drives the game's own respawn path — `PlayerList.respawn`, the very method the hook sits on — and
+     * checks that the event carries the instance the game made for the new life: a different object from
+     * the one it replaced, and not removed, while the handle held from before the call reads as removed.
+     *
+     * The player is deliberately not killed first. A dead player is refused every later damage probe
+     * within the run, and the death is saved with the world, so the next run would start dead — and the
+     * promise this hook makes is about the returned instance, which is the same whether the respawn came
+     * from health or from death.
+     */
+    private fun driveRespawn(player: OMLPlayer): Boolean {
+        if (!clientLoaded(player) || !player.alive) return false
+        val server = OMLGame.server ?: return false
+        val playerList = server.platform.call("getPlayerList") ?: return false
+        val reason = gameClass("net.minecraft.world.entity.Entity\$RemovalReason").getField("KILLED").get(null)
+        respawnObservation = null
+        driveRespawnWindow = true
+        val returned = try {
+            playerList.call("respawn", player.platform, true, reason)
+        } finally {
+            driveRespawnWindow = false
+        }
+        val seen = respawnObservation
+        E2E.check(
+            "event.player_respawned",
+            seen != null && seen.uuid == player.uuid && !seen.removed &&
+                seen.platform !== player.platform && player.removed && seen.health > 0f && returned != null,
+            "the event carried ${if (seen == null) "nothing" else "a live handle for ${seen.name} at health ${seen.health}"}; " +
+                "a different instance from the replaced one=${seen?.platform !== player.platform}, " +
+                "the old handle now reads removed=${player.removed}",
+        )
+        return true
+    }
+
     private fun driveBlockBreak(player: OMLPlayer): Boolean {
         val pos = firstSolid(player.world, player.blockPosition, 8) ?: return false
         val before = player.world.blockAt(pos)
@@ -730,7 +961,17 @@ object WorldProbe {
         when (rewritePhase) {
             0 -> {
                 val (delta, applied) = driveDamage(player, level, source, rewriting = false)
-                if (!applied || delta <= 0f) return false
+                if (!applied || delta <= 0f) {
+                    if (controlWaits++ > REFUSED_DAMAGE_WAIT_TICKS) {
+                        E2E.check(
+                            "event.living_hurt_rewrite",
+                            false,
+                            "the unrewritten control damage was refused for $controlWaits ticks: ${playerState(player)}",
+                        )
+                        return true
+                    }
+                    return false
+                }
                 controlDelta = delta
                 controlTick = tick
                 rewritePhase = 1
@@ -862,6 +1103,11 @@ object WorldProbe {
         val connection = player.platform.javaClass.getField("connection").get(player.platform) ?: return false
         return connection.call("hasClientLoaded") as Boolean
     }
+
+    /** The state the game's own damage guards read, which is what a refused driven damage has to report. */
+    private fun playerState(player: OMLPlayer): String =
+        "mode=${player.gameMode} health=${player.health}/${player.maxHealth} alive=${player.alive} " +
+            "onFire=${player.onFire} at ${player.blockPosition} in ${player.dimensionId}"
 
     private val clientRun = SchedulerRun(OMLSide.CLIENT, "scheduler.client_task")
     private val serverRun = SchedulerRun(OMLSide.SERVER, "scheduler.server_task")
