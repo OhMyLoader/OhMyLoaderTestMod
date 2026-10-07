@@ -43,15 +43,23 @@ if [ ! -d "$WORLD_DIR" ]; then
   fi
 fi
 
-# The accessibility onboarding screen blocks the whole boot path until someone clicks through it:
-# with no options.txt the game shows it instead of the title screen and quickPlay never fires
-# (observed on CI: 12 minutes of AccessibilityOnboardingScreen, world=none). Pre-seed the skip flag;
-# only written when absent, so a developer's own settings are never touched.
+# Two options stand between an unattended run and a verdict:
+# - `onboardAccessibility`: with no options.txt the game shows the accessibility onboarding screen instead
+#   of the title screen and quickPlay never fires (observed on CI: 12 minutes of that screen, world=none).
+# - `pauseOnLostFocus`: `Minecraft.pauseIfInactive()` pauses after 500 ms unfocused and opens the pause
+#   screen, which stops the integrated server's tick — in singleplayer every server-side probe then stalls
+#   on a game nobody paused on purpose (observed: `screen=PauseScreen`, five checks "never reported").
+# Both are set rather than seeded-if-missing: the game writes `pauseOnLostFocus:true` itself, and `run/` is
+# this task's own generated directory (never committed), so the gate owns these two keys outright.
 OPTIONS="run/client/options.txt"
-if [ ! -f "$OPTIONS" ]; then
-  mkdir -p run/client
-  echo 'onboardAccessibility:false' > "$OPTIONS"
-fi
+mkdir -p run/client
+touch "$OPTIONS"
+for key in onboardAccessibility pauseOnLostFocus; do
+  grep -v "^${key}:" "$OPTIONS" > "${OPTIONS}.tmp" || true
+  mv "${OPTIONS}.tmp" "$OPTIONS"
+done
+echo 'onboardAccessibility:false' >> "$OPTIONS"
+echo 'pauseOnLostFocus:false' >> "$OPTIONS"
 
 E2E_ARGS=(-Poml.e2e.ticks="$TICKS" -Poml.e2e.timeoutSeconds="$WATCHDOG")
 E2E_ARGS+=(-Poml.quickPlay="$WORLD" -Poml.e2e.quickPlay=1)
