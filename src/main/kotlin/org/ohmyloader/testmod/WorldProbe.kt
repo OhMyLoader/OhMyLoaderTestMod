@@ -2,12 +2,14 @@ package org.ohmyloader.testmod
 
 import org.ohmyloader.api.access.OMLGame
 import org.ohmyloader.api.event.Events
+import org.ohmyloader.api.registry.OMLRegistries
 import org.ohmyloader.api.tick.OMLScheduler
 import org.ohmyloader.api.tick.OMLSide
 import org.ohmyloader.api.tick.OMLTask
 import org.ohmyloader.api.world.OMLBlockPos
 import org.ohmyloader.api.world.OMLPlayer
 import org.ohmyloader.api.wrapper.OMLWorld
+import java.util.Optional
 
 /**
  * Probes the typed game-access surface (`OMLGame`, world / player / inventory reads and writes, the tick
@@ -15,8 +17,9 @@ import org.ohmyloader.api.wrapper.OMLWorld
  *
  * Reading proves the projections hand the mod what the game holds; driving game methods proves the hooks
  * fire. An unattended run has no hand, so the probe calls `destroyBlock` / `attack` / `interactOn` /
- * `hurtServer` itself with its own cancelling handler armed: cancellation keeps the driven call from
- * changing the world, and the game's return value and the entity's health are what the assertions read.
+ * `hurtServer` / `useItemOn` / `useItem` itself with its own cancelling handler armed: cancellation keeps
+ * the driven call from changing the world, and the game's return value and the entity's health are what
+ * the assertions read.
  *
  * oml-api is the only compile dependency, so game classes come from `OMLCore.gameClassLoader()`.
  */
@@ -24,8 +27,15 @@ object WorldProbe {
 
     private const val AIR = "minecraft:air"
     private const val STONE = "minecraft:stone"
+    private const val DIRT = "minecraft:dirt"
     private const val GLOWSTONE = "minecraft:glowstone"
     private const val HURT_AMOUNT = 2f
+
+    /** What the damage-rewrite handler writes over vanilla's number; the applied damage must scale with it. */
+    private const val REWRITTEN_AMOUNT = 4f
+
+    /** The game's own damage cooldown: an application inside this window is reduced by the previous one. */
+    private const val DAMAGE_COOLDOWN_TICKS = 20
 
     /** A probe whose precondition has not been met for this many ticks has a defect, not a slow world. */
     private const val GIVE_UP_TICKS = 600
@@ -48,6 +58,29 @@ object WorldProbe {
     private var attackObservation: String? = null
     private var interactObservation: String? = null
     private var hurtObservation: Triple<Float, String, Boolean>? = null
+    private var blockUseObservation: BlockUse? = null
+    private var itemUseObservation: Pair<String, String>? = null
+
+    /** The number the rewrite handler saw on the way in, which must be vanilla's, not the written one. */
+    private var rewriteObservation: Float? = null
+
+    /** Where [driveHurtRewrite] got to: 0 control damage pending, 1 waiting out the game's cooldown, 2 reported. */
+    private var rewritePhase = 0
+
+    /** What the game's own arithmetic made of the control amount, the baseline the rewritten one compares to. */
+    private var controlDelta = -1f
+
+    /** Server tick the control damage landed on, the start of the cooldown that has to expire after it. */
+    private var controlTick = -1
+
+    /** Everything [Events.BLOCK_USED] hands a handler, kept for the driving step to assert against. */
+    private data class BlockUse(
+        val position: OMLBlockPos,
+        val blockId: String,
+        val itemId: String,
+        val hand: String,
+        val face: String,
+    )
 
     // Gates: a handler cancels only the call this probe made itself, never a real player action.
     @Volatile
@@ -64,6 +97,15 @@ object WorldProbe {
 
     @Volatile
     private var driveHurt = false
+
+    @Volatile
+    private var driveHurtRewrite = false
+
+    @Volatile
+    private var driveBlockUse = false
+
+    @Volatile
+    private var driveItemUse = false
 
     private val reported = HashSet<String>()
     private val waited = HashMap<String, Int>()
@@ -128,6 +170,24 @@ object WorldProbe {
                 hurtObservation = Triple(event.amount, event.damageType, event.attacker != null)
                 event.cancel()
             }
+            // Not cancelling: the point is that the game applies the written number, so this handler has
+            // to let the damage through.
+            if (driveHurtRewrite && event.entity.uuid == drivenUuid) {
+                rewriteObservation = event.amount
+                event.amount = REWRITTEN_AMOUNT
+            }
+        }
+        Events.BLOCK_USED.register { event ->
+            if (driveBlockUse && event.player.uuid == drivenUuid) {
+                blockUseObservation = BlockUse(event.position, event.blockId, event.itemId, event.hand, event.face)
+                event.cancel()
+            }
+        }
+        Events.ITEM_USED.register { event ->
+            if (driveItemUse && event.player.uuid == drivenUuid) {
+                itemUseObservation = event.itemId to event.hand
+                event.cancel()
+            }
         }
         // Tripwire, never driven: nothing here kills anything. When a natural death passes through the
         // hook, the constraint worth asserting is that the death routine starts at or below zero health.
@@ -151,16 +211,29 @@ object WorldProbe {
     fun tickServer() = guard {
         probeServerHandle()
         tickScheduler(serverRun)
+        step("api.server_level_lookup") { probeLevelLookup() }
+        step("api.registry_reads") { probeRegistries() }
         val player = OMLGame.server?.players?.firstOrNull() ?: return@guard
         step("api.player_handle") { probePlayerHandle(player) }
         step("api.player_inventory") { probeInventory(player) }
         step("api.give_item") { probeGiveItem(player) }
+        step("api.inventory_remove") { probeInventoryRemove(player) }
         step("api.world_block_write") { probeWorldWrite(player) }
+        step("api.world_is_loaded") { probeIsLoaded(player) }
         step("api.server_broadcast") { probeSend(player) }
+        step("api.player_effects") { probeEffects(player) }
+        step("api.world_sound") { probeWorldSound(player) }
+        step("api.player_sound") { probePlayerSound(player) }
+        step("api.player_permissions") { probePermissions(player) }
         step("event.block_break") { driveBlockBreak(player) }
         step("event.entity_attack") { driveAttack(player) }
         step("event.entity_interact") { driveInteract(player) }
         step("event.living_hurt") { driveHurt(player) }
+        step("event.living_hurt_rewrite") { driveHurtRewrite(player) }
+        step("api.player_heal") { probeHeal(player) }
+        step("event.block_used") { driveBlockUse(player) }
+        step("event.item_used") { driveItemUse(player) }
+        step("api.player_teleport") { probeTeleport(player) }
     }
 
     /** These run inside the game's tick dispatch, so a throw here would otherwise stop the game loop. */
@@ -336,12 +409,229 @@ object WorldProbe {
         return true
     }
 
+    /** `OMLServer.level`: every dimension the server reports loaded resolves to its own server-side level. */
+    private fun probeLevelLookup(): Boolean {
+        val server = OMLGame.server ?: return false
+        val dimensions = server.dimensionIds
+        if (dimensions.isEmpty()) return false
+        val resolved = dimensions.map { it to server.level(it)?.let { world -> world.dimensionId to world.isClient } }
+        val absent = server.level("oml_testmod:absent")
+        E2E.check(
+            "api.server_level_lookup",
+            resolved.all { (id, read) -> read == (id to false) } && absent == null,
+            "resolved=${resolved.joinToString { (id, read) -> "$id->$read" }} unregistered id -> $absent",
+        )
+        return true
+    }
+
+    /**
+     * `OMLWorld.isLoaded` is what separates "this chunk is not there" from "this block is air". Nothing
+     * reads the far position: a server level answers the game's own getter there, which is real terrain
+     * rather than air, so only the loaded flags are this probe's subject.
+     */
+    private fun probeIsLoaded(player: OMLPlayer): Boolean {
+        val world = player.world
+        val feet = player.blockPosition
+        val ground = firstSolid(world, feet, 8) ?: return false
+        val far = OMLBlockPos(feet.x + 100_000, feet.y, feet.z)
+        val farLoaded = world.isLoaded(far)
+        E2E.check(
+            "api.world_is_loaded",
+            world.isLoaded(ground) && world.isLoaded(feet) && !farLoaded,
+            "feet $feet and its ground $ground report loaded, $far reports loaded=$farLoaded",
+        )
+        return true
+    }
+
+    /** Registry and tag reads: the same tables the mod's own content is materialized into. */
+    private fun probeRegistries(): Boolean {
+        val blocks = OMLRegistries.blocks
+        val stoneTags = blocks.tagsOf(STONE)
+        val dirtTag = blocks.tagged(DIRT)
+        val baseStone = blocks.tagged("minecraft:base_stone_overworld")
+        val flags = listOf(
+            "id listed" to (STONE in blocks.ids),
+            "id resolves" to blocks.contains(STONE),
+            "unregistered id" to !blocks.contains("oml_testmod:absent"),
+            "item" to OMLRegistries.items.contains(DIRT),
+            "effect" to OMLRegistries.mobEffects.contains("minecraft:poison"),
+            "sound" to OMLRegistries.sounds.contains("minecraft:entity.pig.ambient"),
+            "entity type" to OMLRegistries.entityTypes.contains("minecraft:cow"),
+            "dirt tag holds dirt" to (DIRT in dirtTag),
+            "base_stone_overworld holds stone" to (STONE in baseStone),
+            "stone reports its tags" to ("minecraft:base_stone_overworld" in stoneTags),
+            "unregistered tag is empty" to blocks.tagged("oml_testmod:absent").isEmpty(),
+        )
+        E2E.check(
+            "api.registry_reads",
+            flags.all { it.second },
+            "${flags.filterNot { it.second }.map { it.first }} failed of ${flags.size}; ${blocks.ids.size} block ids, " +
+                "dirt tag=${dirtTag.sorted()}, stone tags=${stoneTags.sorted()}, " +
+                "unregistered tag=${blocks.tagged("oml_testmod:absent")}",
+        )
+        return true
+    }
+
+    /** Effects on the live player, including the three absent-id answers the API promises. */
+    private fun probeEffects(player: OMLPlayer): Boolean {
+        val speed = "minecraft:speed"
+        val applied = player.applyEffect(speed, 200, 1)
+        val instance = player.effects.firstOrNull { it.typeId == speed }
+        val has = player.hasEffect(speed)
+        val removed = player.removeEffect(speed)
+        val stillThere = player.hasEffect(speed)
+        val absent = player.applyEffect("oml_testmod:absent", 20, 0) ||
+            player.hasEffect("oml_testmod:absent") ||
+            player.removeEffect("oml_testmod:absent")
+        E2E.check(
+            "api.player_effects",
+            applied && has && instance != null && instance.amplifier == 1 && instance.durationTicks in 1..200 &&
+                removed && !stillThere && !absent && player.effects.none { it.typeId == speed },
+            "applied=$applied saw=$instance removed=$removed after=${player.effects}, absent id reported $absent",
+        )
+        return true
+    }
+
+    /** Healing a damaged player moves health by exactly what was asked, and never past the maximum. */
+    private fun probeHeal(player: OMLPlayer): Boolean {
+        val before = player.health
+        if (before <= 0f) return false
+        player.heal(1f)
+        val after = player.health
+        val expected = if (player.maxHealth - before >= 1f) before + 1f else player.maxHealth
+        E2E.check(
+            "api.player_heal",
+            after == expected && after <= player.maxHealth,
+            "health $before -> $after (expected $expected of max ${player.maxHealth})",
+        )
+        return true
+    }
+
+    private fun probeWorldSound(player: OMLPlayer): Boolean {
+        val world = player.world
+        val at = player.position
+        val played = world.playSound("minecraft:entity.pig.ambient", at.x, at.y, at.z, 1f, 1f, "neutral")
+        val unknownId = world.playSound("oml_testmod:absent", at.x, at.y, at.z)
+        val unknownCategory = world.playSound("minecraft:entity.pig.ambient", at.x, at.y, at.z, category = "not_a_category")
+        E2E.check(
+            "api.world_sound",
+            played && !unknownId && !unknownCategory,
+            "registered id=$played unknown id=$unknownId unknown category=$unknownCategory; a headless run cannot hear it, this is the id and category contract",
+        )
+        return true
+    }
+
+    private fun probePlayerSound(player: OMLPlayer): Boolean {
+        val played = player.playSound("minecraft:entity.pig.ambient")
+        val unknownId = player.playSound("oml_testmod:absent")
+        E2E.check(
+            "api.player_sound",
+            played && !unknownId,
+            "player hears the registered id=$played, unknown id=$unknownId",
+        )
+        return true
+    }
+
+    /**
+     * Ops the player through the game's own list and deops them again, then asks the two independent
+     * readings the same question: which level does the game hold, and does the projection report exactly
+     * that number. Which number `ADMIN` lands on is the game's business (an integrated server elevates
+     * its local player), so the probe asserts the agreement, not a constant.
+     */
+    private fun probePermissions(player: OMLPlayer): Boolean {
+        val server = OMLGame.server ?: return false
+        val playerList = server.platform.call("getPlayerList") ?: return false
+        val nameAndId = player.platform.call("nameAndId") ?: return false
+        val admin = gameClass("net.minecraft.server.permissions.LevelBasedPermissionSet").getField("ADMIN").get(null)
+        val gameBefore = gamePermissionLevel(player)
+        val apiBefore = player.permissionLevel
+        playerList.call("op", nameAndId, Optional.of(admin), Optional.empty<Any>())
+        val gameGranted = gamePermissionLevel(player)
+        val apiGranted = player.permissionLevel
+        playerList.call("deop", nameAndId)
+        val gameAfter = gamePermissionLevel(player)
+        val apiAfter = player.permissionLevel
+        val readFailure = listOf(gameBefore, gameGranted, gameAfter).firstNotNullOfOrNull { it.exceptionOrNull() }
+        if (readFailure != null) {
+            // The probe's own path into the game's permission state, not the projection, is what failed.
+            E2E.check("api.player_permissions", false, "the game's own permission read failed: $readFailure")
+            return true
+        }
+        val levels = listOf(gameBefore, gameGranted, gameAfter).map { it.getOrThrow() as Int }
+        E2E.check(
+            "api.player_permissions",
+            apiBefore == levels[0] && apiGranted == levels[1] && apiAfter == levels[2] &&
+                levels[1] > levels[0] && levels[2] == levels[0],
+            "OML $apiBefore -> $apiGranted -> $apiAfter, the game's own $levels " +
+                "(the ADMIN set handed to the game is level ${permissionLevelId(admin)})",
+        )
+        return true
+    }
+
+    /**
+     * The level the game itself holds for this player, the state [OMLPlayer.permissionLevel] projects.
+     * Reached through the public interfaces: the implementation class the game hands back is
+     * package-private, so invoking its methods reflectively fails on access rather than on the name.
+     */
+    private fun gamePermissionLevel(player: OMLPlayer): Result<Any?> = runCatching {
+        permissionLevelId(player.platform.javaClass.getMethod("permissions").invoke(player.platform)!!)
+    }
+
+    /** The `PermissionLevel` id carried by a `LevelBasedPermissionSet`. */
+    private fun permissionLevelId(set: Any): Any? = gameClass("net.minecraft.server.permissions.PermissionLevel")
+        .getMethod("id")
+        .invoke(gameClass("net.minecraft.server.permissions.LevelBasedPermissionSet").getMethod("level").invoke(set))
+
+    /** Removes the item from as many slots as it takes, and reports the exact number it took. */
+    private fun probeInventoryRemove(player: OMLPlayer): Boolean {
+        val inventory = player.inventory
+        val before = inventory.countOf(STONE)
+        if (!player.giveItem(STONE, 10)) return false
+        val supplied = inventory.countOf(STONE)
+        val removed = inventory.remove(STONE, 3)
+        val leftAfterThree = inventory.countOf(STONE)
+        val unknown = inventory.remove("oml_testmod:absent", 1)
+        val rest = inventory.remove(STONE, 999)
+        E2E.check(
+            "api.inventory_remove",
+            supplied == before + 10 && removed == 3 && leftAfterThree == supplied - 3 &&
+                unknown == 0 && rest == leftAfterThree && inventory.countOf(STONE) == 0,
+            "$STONE $before -> $supplied, removed $removed then $rest, unknown id removed $unknown, " +
+                "left ${inventory.countOf(STONE)}",
+        )
+        return true
+    }
+
+    /**
+     * Three moves that cover both destination branches: a plain move, a move that names the dimension it
+     * is already in, and one that names a dimension the game has never heard of.
+     *
+     * The destination is two blocks above the player's own feet — the column they already occupy is free
+     * air there, so no terrain search is needed, the move cannot bury them, and a two-block drop is under
+     * the game's fall-damage threshold.
+     */
+    private fun probeTeleport(player: OMLPlayer): Boolean {
+        val home = player.blockPosition
+        val target = OMLBlockPos(home.x, home.y + 2, home.z)
+        if (player.world.blockAt(target) != AIR) return false
+        val moved = player.teleport(home.x + 0.5, home.y + 2.1, home.z + 0.5)
+        val afterMove = player.blockPosition
+        val explicit = player.teleport(home.x + 0.5, home.y + 0.1, home.z + 0.5, player.dimensionId)
+        val backHome = player.blockPosition
+        val refused = player.teleport(home.x + 0.5, home.y + 2.1, home.z + 0.5, "oml_testmod:absent")
+        val stillHome = player.blockPosition
+        E2E.check(
+            "api.player_teleport",
+            moved && afterMove == target && explicit && backHome == home && !refused && stillHome == home,
+            "$home -> $afterMove (wanted $target) -> $backHome, unregistered dimension returned $refused at $stillHome",
+        )
+        return true
+    }
+
     private fun driveBlockBreak(player: OMLPlayer): Boolean {
         val pos = firstSolid(player.world, player.blockPosition, 8) ?: return false
         val before = player.world.blockAt(pos)
-        // `ServerPlayer.gameMode` is the break manager, a public field; the API's gameMode member maps to
-        // the accessor of the same name, which returns the player's GameType instead.
-        val gameMode = player.platform.javaClass.getField("gameMode").get(player.platform)
+        val gameMode = gameModeOf(player)
         breakObservation = null
         breakTarget = pos
         val destroyed = try {
@@ -379,9 +669,7 @@ object WorldProbe {
     private fun driveInteract(player: OMLPlayer): Boolean {
         val hand = gameClass("net.minecraft.world.InteractionHand").getField("MAIN_HAND").get(null)
         val position = player.position
-        val hitVec = gameClass("net.minecraft.world.phys.Vec3")
-            .getConstructor(Double::class.java, Double::class.java, Double::class.java)
-            .newInstance(position.x, position.y, position.z)
+        val hitVec = gameVec3(position.x, position.y, position.z)
         interactObservation = null
         drivenUuid = player.uuid
         driveInteract = true
@@ -426,6 +714,148 @@ object WorldProbe {
         )
         return true
     }
+
+    /**
+     * The same driven damage, with the handler rewriting the number instead of cancelling it. What the
+     * player loses is the game's own arithmetic on top of the number (armor, difficulty), and an
+     * application inside the game's damage cooldown is reduced by the previous one — so the verdict is a
+     * comparison: the same damage through the same path has to cost more once a handler wrote a bigger
+     * number, which is only possible if the written number is the one the game used.
+     */
+    private fun driveHurtRewrite(player: OMLPlayer): Boolean {
+        if (!clientLoaded(player)) return false
+        val level = player.platform.call("level") ?: return false
+        val source = level.call("damageSources")?.call("generic") ?: return false
+        val tick = OMLGame.server?.tickCount ?: return false
+        when (rewritePhase) {
+            0 -> {
+                val (delta, applied) = driveDamage(player, level, source, rewriting = false)
+                if (!applied || delta <= 0f) return false
+                controlDelta = delta
+                controlTick = tick
+                rewritePhase = 1
+                return false
+            }
+            1 -> {
+                if (tick - controlTick <= DAMAGE_COOLDOWN_TICKS) return false
+                val (delta, applied) = driveDamage(player, level, source, rewriting = true)
+                val seen = rewriteObservation
+                rewritePhase = 2
+                E2E.check(
+                    "event.living_hurt_rewrite",
+                    seen == HURT_AMOUNT && applied && delta > controlDelta,
+                    "handler saw $seen and wrote $REWRITTEN_AMOUNT; hurtServer returned $applied; " +
+                        "the control's $HURT_AMOUNT cost $controlDelta, the rewritten amount cost $delta",
+                )
+                return true
+            }
+            else -> return true
+        }
+    }
+
+    /** One driven `hurtServer` call, with or without the rewrite handler acting on it. */
+    private fun driveDamage(player: OMLPlayer, level: Any, source: Any, rewriting: Boolean): Pair<Float, Boolean> {
+        val healthBefore = player.health
+        rewriteObservation = null
+        drivenUuid = player.uuid
+        if (rewriting) driveHurtRewrite = true
+        val applied = try {
+            player.platform.call("hurtServer", level, source, HURT_AMOUNT) as Boolean
+        } finally {
+            if (rewriting) driveHurtRewrite = false
+        }
+        return (healthBefore - player.health) to applied
+    }
+
+    private fun driveBlockUse(player: OMLPlayer): Boolean {
+        val pos = firstSolid(player.world, player.blockPosition, 8) ?: return false
+        val before = player.world.blockAt(pos)
+        blockUseObservation = null
+        drivenUuid = player.uuid
+        driveBlockUse = true
+        var result: Any? = null
+        val restored = try {
+            withDirtInHand(player) { stack ->
+                result = gameModeOf(player)
+                    .call("useItemOn", player.platform, player.platform.call("level"), stack, mainHand(), blockHit(pos))
+                true
+            }
+        } finally {
+            driveBlockUse = false
+        }
+        val seen = blockUseObservation
+        E2E.check(
+            "event.block_used",
+            restored && seen != null && seen.position == pos && seen.blockId == before &&
+                seen.itemId == DIRT && seen.hand == "main_hand" && seen.face == "up" && result === interactionFail(),
+            "handler saw $seen; useItemOn returned $result (FAIL is the cancel's own return value); " +
+                "$pos is still ${player.world.blockAt(pos)}, hand restored=$restored",
+        )
+        return true
+    }
+
+    private fun driveItemUse(player: OMLPlayer): Boolean {
+        itemUseObservation = null
+        drivenUuid = player.uuid
+        driveItemUse = true
+        var result: Any? = null
+        val restored = try {
+            withDirtInHand(player) { stack ->
+                result = gameModeOf(player).call("useItem", player.platform, player.platform.call("level"), stack, mainHand())
+                true
+            }
+        } finally {
+            driveItemUse = false
+        }
+        val seen = itemUseObservation
+        E2E.check(
+            "event.item_used",
+            restored && seen != null && seen.first == DIRT && seen.second == "main_hand" && result === interactionFail(),
+            "handler saw $seen; useItem returned $result (FAIL is the cancel's own return value), hand restored=$restored",
+        )
+        return true
+    }
+
+    /**
+     * Puts dirt in the hand slot for the driven click and puts the slot back afterwards: the event's item
+     * id has to be an item the player actually holds, and an uncancelled use would consume it.
+     */
+    private fun withDirtInHand(player: OMLPlayer, body: (Any) -> Boolean): Boolean {
+        val inventory = player.inventory
+        val slot = inventory.selectedSlot
+        val original = inventory.itemAt(slot) ?: return false
+        if (!inventory.set(slot, DIRT, 1)) return false
+        val stack = inventory.itemAt(slot)?.platform ?: return false
+        val verdict = body(stack)
+        val rewrote = if (original.isEmpty) inventory.set(slot, DIRT, 0) else inventory.set(slot, original.id, original.count)
+        val readBack = inventory.itemAt(slot)
+        return verdict && rewrote && readBack?.id == original.id && readBack.count == original.count
+    }
+
+    /**
+     * `ServerPlayer.gameMode` is the break-and-use manager, a public field. The API's `gameMode` member is
+     * the accessor of the same name, which returns the player's game type instead.
+     */
+    private fun gameModeOf(player: OMLPlayer): Any =
+        player.platform.javaClass.getField("gameMode").get(player.platform)
+
+    private fun mainHand(): Any = gameClass("net.minecraft.world.InteractionHand").getField("MAIN_HAND").get(null)
+
+    /** A click on the top face of [pos], the face the block under the player is looked at through. */
+    private fun blockHit(pos: OMLBlockPos): Any =
+        gameClass("net.minecraft.world.phys.BlockHitResult")
+            .getConstructor(
+                gameClass("net.minecraft.world.phys.Vec3"),
+                gameClass("net.minecraft.core.Direction"),
+                gameClass("net.minecraft.core.BlockPos"),
+                Boolean::class.java,
+            )
+            .newInstance(
+                gameVec3(pos.x + 0.5, pos.y + 1.0, pos.z + 0.5),
+                gameClass("net.minecraft.core.Direction").getField("UP").get(null),
+                gameBlockPos(pos),
+                false,
+            )
 
     /** Whether the player's own client has finished loading the terrain it stands in. */
     private fun clientLoaded(player: OMLPlayer): Boolean {
@@ -489,6 +919,14 @@ object WorldProbe {
     }
 
     private fun interactionPass(): Any = gameClass("net.minecraft.world.InteractionResult").getField("PASS").get(null)
+
+    /** A cancelled right-click answers `FAIL`, which is why the driver asserts on the driven call's own result. */
+    private fun interactionFail(): Any = gameClass("net.minecraft.world.InteractionResult").getField("FAIL").get(null)
+
+    private fun gameVec3(x: Double, y: Double, z: Double): Any =
+        gameClass("net.minecraft.world.phys.Vec3")
+            .getConstructor(Double::class.java, Double::class.java, Double::class.java)
+            .newInstance(x, y, z)
 
     private fun gameBlockPos(pos: OMLBlockPos): Any =
         gameClass("net.minecraft.core.BlockPos")

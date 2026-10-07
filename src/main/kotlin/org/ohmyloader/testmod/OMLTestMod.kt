@@ -78,7 +78,8 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider, OM
             E2E.expect(
                 "content.item_components", "recipe.loaded", "worldgen.ore_feature",
                 "command.executed", "config.generated", "network.unknown_player",
-                "event.server_started", "api.server_handle", "scheduler.server_task",
+                "event.server_started", "api.server_handle", "api.server_level_lookup",
+                "api.registry_reads", "scheduler.server_task",
             )
         } else {
             // Deliberately not expected here, because a session that stops at the main menu does not
@@ -111,10 +112,15 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider, OM
                 E2E.expect(
                     "event.world_load", "network.server_received", "network.round_trip", "hud.rendered",
                     "event.server_started", "event.player_joined",
-                    "api.server_handle", "api.player_handle", "api.player_inventory", "api.give_item",
-                    "api.world_block_read", "api.world_block_write", "scheduler.server_task",
+                    "api.server_handle", "api.server_level_lookup", "api.registry_reads",
+                    "api.player_handle", "api.player_inventory", "api.give_item", "api.inventory_remove",
+                    "api.world_block_read", "api.world_block_write", "api.world_is_loaded",
+                    "api.player_effects", "api.player_heal", "api.player_sound", "api.world_sound",
+                    "api.player_permissions", "api.player_teleport",
+                    "scheduler.server_task", "scheduler.client_task",
                     "api.server_broadcast", "api.player_system_message",
                     "event.block_break", "event.entity_attack", "event.entity_interact", "event.living_hurt",
+                    "event.living_hurt_rewrite", "event.block_used", "event.item_used",
                 )
             }
         }
