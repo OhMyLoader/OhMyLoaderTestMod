@@ -72,6 +72,30 @@ object WorldProbe {
     private const val MOD_DAMAGE_MESSAGE = "oml_testmod.melts"
     private const val OVERWORLD = "minecraft:overworld"
 
+    /** A dimension whose type names no clock: the game has no time to read or write there. */
+    private const val NETHER = "minecraft:the_nether"
+
+    /** The clock the overworld runs on, and the vanilla marker the clock probes move it onto. */
+    private const val OVERWORLD_CLOCK = "minecraft:overworld"
+    private const val NOON_MARKER = "minecraft:noon"
+    private const val ABSENT_CLOCK = "oml_testmod:absent_clock"
+    private const val ABSENT_MARKER = "oml_testmod:absent_marker"
+
+    /** Outside the game's own `/time rate` window, so OML has to refuse it rather than store it. */
+    private const val FAST_RATE = 2f
+    private const val IDLE_RATE = 0f
+    private const val IMPOSSIBLE_RATE = 100000f
+
+    /** Ticks the clock probes watch the game count at a given rate, and the most they may wait for it. */
+    private const val CLOCK_RATE_WINDOW = 5
+    private const val CLOCK_PAUSE_WINDOW = 3
+    private const val CLOCK_WINDOW_LIMIT = 100
+
+    /** How far ahead of the client's copy the sync probe writes, and how near it has to land. */
+    private const val CLOCK_SYNC_JUMP = 5000L
+    private const val CLOCK_SYNC_TOLERANCE = 5L
+    private const val CLOCK_SYNC_WAIT_TICKS = 60
+
     /** A rule that exists in every vanilla dimension, so the flip-and-restore has a guaranteed subject. */
     private const val KEEP_INVENTORY_RULE = "minecraft:keep_inventory"
 
@@ -193,6 +217,28 @@ object WorldProbe {
 
     /** Ticks spent waiting for the live weather read to catch up with the write. */
     private var weatherWait = 0
+
+    /** Clock ticks the rate probe had counted before it changed the speed, to restore afterwards. */
+    private var clockBaseline = 0L
+
+    /** Server tick the current clock-rate phase started on. */
+    private var clockPhaseTick = -1
+
+    /** Clock ticks counted at the start of the current clock-rate phase. */
+    private var clockPhaseStart = 0L
+
+    /** 0 = fast rate running, 1 = paused, 2 = resumed, 3 = reported. */
+    private var clockRatePhase = 0
+
+    /** The clock position the client-sync probe wrote, and what it held before the probe. */
+    private var clockSyncTarget = 0L
+    private var clockSyncPrevious = 0L
+
+    /** Server tick the client-sync probe wrote on, the start of the window it may take to arrive. */
+    private var clockSyncTick = -1
+
+    /** 0 = the write is pending, 1 = waiting for the client's copy to follow, 2 = reported. */
+    private var clockSyncPhase = 0
 
     /** Everything [Events.BLOCK_USED] hands a handler, kept for the driving step to assert against. */
     private data class BlockUse(
@@ -362,6 +408,12 @@ object WorldProbe {
         step("event.level_tick") { probeLevelTick() }
         step("content.damage_type") { probeDeclaredDamageType() }
         step("api.world_weather") { probeWeather() }
+        step("api.world_clock") { probeClock() }
+        step("api.clock_markers") { probeClockMarkers() }
+        step("api.clock_rate_and_pause") { probeClockRate() }
+        // The client's copy of the clock only exists in a client process, so the dedicated run must not
+        // wait for a step it can never satisfy.
+        if (!dedicated) step("api.clock_client_sync") { probeClockSync() }
         step("api.server_game_rules") { probeGameRules() }
         step("api.world_particles_arguments") { probeArgumentParticles() }
         val player = OMLGame.server?.players?.firstOrNull() ?: return@guard
@@ -650,6 +702,221 @@ object WorldProbe {
                 "phase $weatherPhase asked for $raining/$thundering and the live read stayed " +
                     "${live.isRaining}/${live.isThundering} for $weatherWait ticks",
             )
+            return true
+        }
+        return false
+    }
+
+    /**
+     * The dimension's own clock, with the two refusals that say the handle is the game's record and not a
+     * copy of it: a dimension whose type names no clock reads null rather than a clock stuck at zero, and
+     * an unregistered clock id reads null instead of reaching `ServerClockManager.getInstance`, which
+     * throws for a clock the game does not hold. A write through the dimension's handle has to show up in
+     * the handle taken from the server, since both are meant to be the same single clock.
+     */
+    private fun probeClock(): Boolean {
+        val server = OMLGame.server ?: return false
+        val world = server.level(OVERWORLD) ?: return false
+        val clock = world.clock ?: return false
+        val nether = server.level(NETHER) ?: return false
+        val before = clock.totalTicks
+        val wanted = before + 1000
+        val wrote = clock.setTotalTicks(wanted)
+        val viaServer = server.clock(clock.clockId)
+        val seenThere = viaServer?.totalTicks
+        val restored = clock.setTotalTicks(before)
+        val flags = listOf(
+            "the dimension's clock is the game's own" to (clock.clockId == OVERWORLD_CLOCK),
+            "the clock table lists it" to OMLRegistries.worldClocks.contains(OVERWORLD_CLOCK),
+            "a clockless dimension reads null" to (nether.clock == null),
+            "an unregistered id reads null" to (server.clock(ABSENT_CLOCK) == null),
+            "the write was accepted" to wrote,
+            "the server names the same clock" to (viaServer?.clockId == clock.clockId),
+            "the game's record moved" to (seenThere == wanted),
+            "the position restores" to (restored && clock.totalTicks == before),
+        )
+        E2E.check(
+            "api.world_clock",
+            flags.all { it.second },
+            "${flags.filterNot { it.second }.map { it.first }} failed of ${flags.size}; $before -> " +
+                "$seenThere (wanted $wanted), restored to ${clock.totalTicks}, nether clock=" +
+                "${nether.clock?.clockId ?: "null"}",
+        )
+        return true
+    }
+
+    /**
+     * The clock's marker table, which is what `/time set` and the game's own day-night logic address. The
+     * game's test for sitting on a marker is exact-or-periodic, not a window, so moving onto
+     * `minecraft:noon` has to make the game agree on the same call — while a marker this clock does not
+     * carry is refused and leaves the position where it was.
+     */
+    private fun probeClockMarkers(): Boolean {
+        val server = OMLGame.server ?: return false
+        val clock = server.clock(OVERWORLD_CLOCK) ?: return false
+        val markers = clock.markerIds
+        val before = clock.totalTicks
+        val refused = clock.moveToMarker(ABSENT_MARKER)
+        val unmoved = clock.totalTicks == before
+        val moved = clock.moveToMarker(NOON_MARKER)
+        val atNoon = clock.isAtMarker(NOON_MARKER)
+        val atAbsent = clock.isAtMarker(ABSENT_MARKER)
+        val restored = clock.setTotalTicks(before)
+        val flags = listOf(
+            "noon is offered" to (NOON_MARKER in markers),
+            "day is offered" to ("minecraft:day" in markers),
+            "an unknown marker is refused" to !refused,
+            "the refusal moved nothing" to unmoved,
+            "the move landed" to moved,
+            "the game agrees the clock is there" to atNoon,
+            "an unknown marker is nowhere" to !atAbsent,
+            "the position restores" to restored,
+        )
+        E2E.check(
+            "api.clock_markers",
+            flags.all { it.second },
+            "${flags.filterNot { it.second }.map { it.first }} failed of ${flags.size}; markers=" +
+                "${markers.sorted()}, $before -> ${clock.totalTicks} after moveToMarker(noon)=$moved",
+        )
+        return true
+    }
+
+    /**
+     * Rate and pause, measured by what the game counts: a clock at [FAST_RATE] has to add two ticks per
+     * game tick, a paused one has to add none, and a resumed one has to start again at the game's own rate.
+     * OML does no time arithmetic, so every number here is the game's. The refusals are the game's own
+     * window — its clock manager would store any value, so OML checks against what `/time rate` accepts.
+     */
+    private fun probeClockRate(): Boolean {
+        val server = OMLGame.server ?: return false
+        // The windows measure what the game counted, so no other clock writer may be active inside one.
+        if ("api.world_clock" !in reported || "api.clock_markers" !in reported) return false
+        val clock = server.level(OVERWORLD)?.clock ?: return false
+        val tick = server.tickCount
+        if (clockPhaseTick < 0) {
+            clockBaseline = clock.totalTicks
+            val refusedIdle = clock.setRate(IDLE_RATE)
+            val refusedHuge = clock.setRate(IMPOSSIBLE_RATE)
+            val accepted = clock.setRate(FAST_RATE)
+            if (refusedIdle || refusedHuge || !accepted || clock.rate != FAST_RATE) {
+                E2E.check(
+                    "api.clock_rate_and_pause",
+                    false,
+                    "rate window: 0 accepted=$refusedIdle, $IMPOSSIBLE_RATE accepted=$refusedHuge, " +
+                        "$FAST_RATE accepted=$accepted and reads ${clock.rate}",
+                )
+                clockRatePhase = 3
+                return true
+            }
+            clockPhaseTick = tick
+            clockPhaseStart = clock.totalTicks
+            return false
+        }
+        val elapsed = tick - clockPhaseTick
+        val advanced = clock.totalTicks - clockPhaseStart
+        if (elapsed <= (if (clockRatePhase == 1) CLOCK_PAUSE_WINDOW else CLOCK_RATE_WINDOW)) {
+            if (elapsed < CLOCK_WINDOW_LIMIT) return false
+            E2E.check(
+                "api.clock_rate_and_pause",
+                false,
+                "phase $clockRatePhase stalled after $elapsed ticks at rate ${clock.rate}, " +
+                    "paused=${clock.isPaused}",
+            )
+            clockRatePhase = 3
+            return true
+        }
+        val expected = when (clockRatePhase) {
+            0 -> elapsed * 2L
+            1 -> 0L
+            else -> elapsed.toLong()
+        }
+        if (advanced != expected) {
+            E2E.check(
+                "api.clock_rate_and_pause",
+                false,
+                "phase $clockRatePhase (rate ${clock.rate}, paused=${clock.isPaused}) counted $advanced " +
+                    "in $elapsed game ticks, the game's own arithmetic wants $expected",
+            )
+            clockRatePhase = 3
+            return true
+        }
+        when (clockRatePhase) {
+            0 -> {
+                clock.setPaused(true)
+                clockRatePhase = 1
+            }
+            1 -> {
+                clock.setPaused(false)
+                clock.setRate(1f)
+                clockRatePhase = 2
+            }
+            else -> {
+                val restored = clock.setTotalTicks(clockBaseline)
+                E2E.check(
+                    "api.clock_rate_and_pause",
+                    restored && !clock.isPaused && clock.rate == 1f,
+                    "the game counted $FAST_RATE, nothing while paused, and 1.0 after resuming; the " +
+                        "position restored to $clockBaseline is=${clock.totalTicks} rate=${clock.rate} " +
+                        "paused=${clock.isPaused}",
+                )
+                clockRatePhase = 3
+                return true
+            }
+        }
+        clockPhaseTick = tick
+        clockPhaseStart = clock.totalTicks
+        return false
+    }
+
+    /**
+     * Singleplayer keeps a second copy of the clock: the rendered level's, which the server pushes as soon
+     * as it changes a clock (the game's own `modifyClock` broadcasts the new state to that dimension). The
+     * probe writes a position the client's copy cannot reach by counting, then waits for it to arrive —
+     * the half of this surface no server-side read can show. While it waits it also checks that the
+     * client's own clock refuses a write: the client is told the time, it does not set it.
+     */
+    private fun probeClockSync(): Boolean {
+        val server = OMLGame.server ?: return false
+        // Its window is a clock write too: it may not run while another clock probe is still counting.
+        if ("api.clock_rate_and_pause" !in reported) return false
+        val clock = server.clock(OVERWORLD_CLOCK) ?: return false
+        val clientClock = if (dedicated) return false else OMLGame.client?.world?.clock ?: return false
+        val tick = server.tickCount
+        if (clockSyncPhase == 0) {
+            clockSyncPrevious = clock.totalTicks
+            clockSyncTarget = clockSyncPrevious + CLOCK_SYNC_JUMP
+            if (!clock.setTotalTicks(clockSyncTarget)) {
+                E2E.check("api.clock_client_sync", false, "the server refused the write of $clockSyncTarget")
+                clockSyncPhase = 2
+                return true
+            }
+            clockSyncTick = tick
+            clockSyncPhase = 1
+            return false
+        }
+        if (clockSyncPhase != 1) return true
+        val tookWrite = clientClock.setTotalTicks(clientClock.totalTicks + 1)
+        val seen = clientClock.totalTicks
+        if (tookWrite) {
+            clock.setTotalTicks(clockSyncPrevious)
+            E2E.check(
+                "api.clock_client_sync",
+                false,
+                "the rendered level's clock accepted a write of its own, so the client owns time it does not have",
+            )
+            clockSyncPhase = 2
+            return true
+        }
+        val arrived = seen >= clockSyncTarget && seen <= clockSyncTarget + CLOCK_SYNC_TOLERANCE
+        if (arrived || tick - clockSyncTick > CLOCK_SYNC_WAIT_TICKS) {
+            clock.setTotalTicks(clockSyncPrevious)
+            E2E.check(
+                "api.clock_client_sync",
+                arrived,
+                "wrote $clockSyncTarget on the server; the client read $seen after ${tick - clockSyncTick} " +
+                    "ticks (the server stands at ${clock.totalTicks})",
+            )
+            clockSyncPhase = 2
             return true
         }
         return false

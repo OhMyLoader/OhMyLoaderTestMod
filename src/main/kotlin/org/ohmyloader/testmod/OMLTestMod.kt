@@ -91,8 +91,9 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider, OM
                 "event.server_started", "api.server_handle", "api.server_level_lookup",
                 "api.registry_reads", "scheduler.server_task",
                 // None of these need a player: the server ticks its own levels, the content pack is
-                // reloaded during boot, and weather, game rules and particles belong to the level.
+                // reloaded during boot, and weather, clocks, game rules and particles belong to the level.
                 "event.level_tick", "content.damage_type", "api.world_weather",
+                "api.world_clock", "api.clock_markers", "api.clock_rate_and_pause",
                 "api.server_game_rules", "api.world_particles_arguments",
             )
         } else {
@@ -138,6 +139,8 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider, OM
                     // one each report their own tick, and the mod's damage type is loaded either way.
                     "event.level_tick", "content.damage_type",
                     "api.world_weather", "api.server_game_rules", "api.world_particles_arguments",
+                    "api.world_clock", "api.clock_markers", "api.clock_rate_and_pause",
+                    "api.clock_client_sync",
                     "scheduler.server_task", "scheduler.client_task",
                     "api.server_broadcast", "api.player_system_message",
                     "event.block_break", "event.entity_attack", "event.entity_interact", "event.living_hurt",
