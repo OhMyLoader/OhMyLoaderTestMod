@@ -8,6 +8,7 @@ import org.ohmyloader.api.tick.OMLSide
 import org.ohmyloader.api.tick.OMLTask
 import org.ohmyloader.api.world.OMLBlockPos
 import org.ohmyloader.api.world.OMLEntity
+import org.ohmyloader.api.world.OMLLivingEntity
 import org.ohmyloader.api.world.OMLPlayer
 import org.ohmyloader.api.world.OMLVec3
 import org.ohmyloader.api.wrapper.OMLWorld
@@ -48,6 +49,24 @@ object WorldProbe {
     /** The game's own damage cooldown: an application inside this window is reduced by the previous one. */
     private const val DAMAGE_COOLDOWN_TICKS = 20
 
+    /** A neutral mob the game treats as fire-immune: lighting it has to be refused. */
+    private const val STRIDER = "minecraft:strider"
+    private const val FIRE_TICKS = 60
+
+    /** Attribute ids the probes read and write. */
+    private const val MAX_HEALTH_ATTRIBUTE = "minecraft:max_health"
+    private const val ATTACK_DAMAGE_ATTRIBUTE = "minecraft:attack_damage"
+
+    /** A maximum the game itself accepts (its own clamp for this attribute reaches far past it). */
+    private const val RAISED_MAX_HEALTH = 30.0
+
+    /** The modifier the attribute probe adds and takes off again. */
+    private const val MODIFIER_ID = "oml_testmod:probe"
+    private const val MODIFIER_AMOUNT = 4.0
+
+    /** A registered damage type the hurt probe deals through the game's own path. */
+    private const val CACTUS_DAMAGE = "minecraft:cactus"
+
     /** X motion written to the spawned cow; the game has to integrate it into the position. */
     private const val MOTION_X = 0.6
 
@@ -85,6 +104,10 @@ object WorldProbe {
     /** The number the rewrite handler saw on the way in, which must be vanilla's, not the written one. */
     private var rewriteObservation: Float? = null
 
+    /** What the hook saw of the damage this probe **dealt**: amount, damage type, and whether an attacker
+     *  was credited — the same three things a mob's own attack arrives with. */
+    private var hurtActionObservation: Triple<Float, String, Boolean>? = null
+
     /** Where [driveHurtRewrite] got to: 0 control damage pending, 1 waiting out the game's cooldown, 2 reported. */
     private var rewritePhase = 0
 
@@ -94,8 +117,8 @@ object WorldProbe {
     /** Server tick the control damage landed on, the start of the cooldown that has to expire after it. */
     private var controlTick = -1
 
-    /** The cow the spawn probe created: the query and removal steps read and clean up that same entity. */
-    private var spawned: OMLEntity? = null
+    /** The cow the spawn probe created: the steps sharing it read and clean up the same living entity. */
+    private var spawned: OMLLivingEntity? = null
 
     /** The projectile the motion probe writes into, discarded once the measurement reported. */
     private var projectile: OMLEntity? = null
@@ -143,6 +166,10 @@ object WorldProbe {
 
     @Volatile
     private var driveHurtRewrite = false
+
+    /** Armed only while the probe's own dealt damage runs: the handler records it and lets it through. */
+    @Volatile
+    private var driveHurtAction = false
 
     @Volatile
     private var driveBlockUse = false
@@ -219,6 +246,11 @@ object WorldProbe {
                 rewriteObservation = event.amount
                 event.amount = REWRITTEN_AMOUNT
             }
+            // Neither cancelling nor rewriting: this is the damage the probe *dealt*, and the point is
+            // that the game runs it through the same hook a mob's attack uses.
+            if (driveHurtAction && event.entity.uuid == drivenUuid) {
+                hurtActionObservation = Triple(event.amount, event.damageType, event.attacker != null)
+            }
         }
         Events.BLOCK_USED.register { event ->
             if (driveBlockUse && event.player.uuid == drivenUuid) {
@@ -282,6 +314,9 @@ object WorldProbe {
         step("api.player_teleport") { probeTeleport(player) }
         step("api.entity_spawn") { probeSpawn(player) }
         step("api.entity_motion") { probeMotion(player) }
+        step("api.entity_attributes") { probeAttributes(player) }
+        step("api.entity_hurt") { probeDealtDamage(player) }
+        step("api.entity_fire") { probeFire(player) }
         step("api.entity_removal") { probeRemoval(player) }
         step("api.block_state") { probeBlockState(player) }
         step("api.world_particles") { probeParticles(player) }
@@ -510,6 +545,9 @@ object WorldProbe {
             "effect" to OMLRegistries.mobEffects.contains("minecraft:poison"),
             "sound" to OMLRegistries.sounds.contains("minecraft:entity.pig.ambient"),
             "entity type" to OMLRegistries.entityTypes.contains("minecraft:cow"),
+            "attribute" to OMLRegistries.attributes.contains(MAX_HEALTH_ATTRIBUTE),
+            "damage type" to OMLRegistries.damageTypes.contains(CACTUS_DAMAGE),
+            "unregistered damage type" to !OMLRegistries.damageTypes.contains("oml_testmod:absent"),
             "dirt tag holds dirt" to (DIRT in dirtTag),
             "base_stone_overworld holds stone" to (STONE in baseStone),
             "stone reports its tags" to ("minecraft:base_stone_overworld" in stoneTags),
@@ -683,24 +721,27 @@ object WorldProbe {
 
     /**
      * Spawns a registered type beside the player and reads it back out of the level's own entity query,
-     * with the two rejections the API promises: an unregistered id and a client-side level.
+     * with the rejections the API promises: an unregistered id, a client-side level, and a non-living type
+     * asked of the living spawn.
      */
     private fun probeSpawn(player: OMLPlayer): Boolean {
         val world = player.world
         val at = player.position
-        val cow = world.spawnEntity(COW, at.x + 2.5, at.y + 1.0, at.z + 2.5) ?: return false
+        val cow = world.spawnLivingEntity(COW, at.x + 2.5, at.y + 1.0, at.z + 2.5) ?: return false
         val unknown = world.spawnEntity("oml_testmod:absent", at.x, at.y, at.z)
+        val notLiving = world.spawnLivingEntity(SNOWBALL, at.x + 3.5, at.y + 1.0, at.z + 3.5)
         val listed = world.entitiesOfType(COW)
         val clientWorld = OMLGame.client?.world ?: return false
         val clientRefused = clientWorld.spawnEntity(COW, at.x, at.y, at.z)
         spawned = cow
         E2E.check(
             "api.entity_spawn",
-            unknown == null && cow.typeId == COW && !cow.removed &&
+            unknown == null && cow.typeId == COW && !cow.removed && cow.health > 0f && notLiving == null &&
                 cow.world.dimensionId == world.dimensionId &&
                 listed.any { it.uuid == cow.uuid } && clientRefused == null,
-            "spawned ${cow.typeId} at ${cow.blockPosition} in ${cow.dimensionId}, the level lists " +
-                "${listed.size} of $COW, unregistered id -> $unknown, client-side level -> $clientRefused",
+            "spawned ${cow.typeId} at ${cow.blockPosition} in ${cow.dimensionId} with health ${cow.health}, the " +
+                "level lists ${listed.size} of $COW, unregistered id -> $unknown, $SNOWBALL as living -> " +
+                "$notLiving, client-side level -> $clientRefused",
         )
         return true
     }
@@ -747,12 +788,114 @@ object WorldProbe {
     }
 
     /**
+     * The attribute layer, measured where the game itself reacts: raising the maximum-health base has to
+     * show up in the health cap the game reports, and an `add_value` modifier has to move the effective
+     * attack number by exactly its amount and come off again. Every write is restored, and the refusals
+     * (unknown attribute, unknown operation, removing what is not there) are part of the claim.
+     */
+    private fun probeAttributes(player: OMLPlayer): Boolean {
+        val baseBefore = player.attributeBase(MAX_HEALTH_ATTRIBUTE) ?: return false
+        val damageBefore = player.attributeValue(ATTACK_DAMAGE_ATTRIBUTE) ?: return false
+        val healthBefore = player.health
+        val raised = player.setAttributeBase(MAX_HEALTH_ATTRIBUTE, RAISED_MAX_HEALTH)
+        val raisedBase = player.attributeBase(MAX_HEALTH_ATTRIBUTE)
+        val capNow = player.maxHealth
+        val healthAfterRaise = player.health
+        val added = player.addAttributeModifier(ATTACK_DAMAGE_ATTRIBUTE, MODIFIER_ID, MODIFIER_AMOUNT, "add_value")
+        val withModifier = player.attributeValue(ATTACK_DAMAGE_ATTRIBUTE)
+        val removed = player.removeAttributeModifier(ATTACK_DAMAGE_ATTRIBUTE, MODIFIER_ID)
+        val withoutModifier = player.attributeValue(ATTACK_DAMAGE_ATTRIBUTE)
+        val restored = player.setAttributeBase(MAX_HEALTH_ATTRIBUTE, baseBefore)
+        val flags = listOf(
+            "raise accepted" to raised,
+            "base reads back" to (raisedBase == RAISED_MAX_HEALTH),
+            "the game's cap follows" to (capNow == RAISED_MAX_HEALTH.toFloat()),
+            "a raised cap does not refill health" to (healthAfterRaise == healthBefore),
+            "modifier accepted" to added,
+            "modifier moves the value" to (withModifier == damageBefore + MODIFIER_AMOUNT),
+            "modifier removed" to removed,
+            "the value returns" to (withoutModifier == damageBefore),
+            "base restored" to (restored && player.maxHealth == baseBefore.toFloat()),
+            "unknown attribute reads null" to (player.attributeValue("oml_testmod:absent") == null),
+            "unknown attribute refuses write" to !player.setAttributeBase("oml_testmod:absent", 1.0),
+            "unknown operation refused" to !player.addAttributeModifier(ATTACK_DAMAGE_ATTRIBUTE, MODIFIER_ID, 1.0, "sideways"),
+            "removing nothing answers false" to !player.removeAttributeModifier(ATTACK_DAMAGE_ATTRIBUTE, "oml_testmod:absent"),
+        )
+        E2E.check(
+            "api.entity_attributes",
+            flags.all { it.second },
+            "${flags.filterNot { it.second }.map { it.first }} failed of ${flags.size}; base $baseBefore -> " +
+                "$raisedBase (game cap $capNow, restored to ${player.maxHealth}), health $healthBefore -> " +
+                "$healthAfterRaise, attack $damageBefore -> $withModifier -> $withoutModifier",
+        )
+        return true
+    }
+
+    /**
+     * Deals damage with the API instead of receiving it: the amount, the damage type and the credited
+     * attacker have to arrive at the loader's own `LIVING_HURT` hook exactly as a mob's attack does, and
+     * the health has to drop by what the game applied. An unregistered damage type is refused.
+     */
+    private fun probeDealtDamage(player: OMLPlayer): Boolean {
+        val cow = spawned ?: return false
+        if (cow.removed) return false
+        val healthBefore = cow.health
+        hurtActionObservation = null
+        drivenUuid = cow.uuid
+        driveHurtAction = true
+        val applied = try {
+            cow.hurt(CACTUS_DAMAGE, HURT_AMOUNT, player)
+        } finally {
+            driveHurtAction = false
+        }
+        val unknown = cow.hurt("oml_testmod:absent", HURT_AMOUNT)
+        val seen = hurtActionObservation
+        val healthAfter = cow.health
+        E2E.check(
+            "api.entity_hurt",
+            applied && seen?.first == HURT_AMOUNT && seen?.second == "cactus" && seen?.third == true &&
+                healthBefore - healthAfter == HURT_AMOUNT && !unknown,
+            "hurt returned $applied, the hook saw $seen, health $healthBefore -> $healthAfter, " +
+                "unregistered damage type -> $unknown",
+        )
+        return true
+    }
+
+    /**
+     * Lights a mob, reads the game's own burning state back, puts it out, and asks an immune mob to refuse
+     * it — that refusal is the API's false, not a silent no-op.
+     */
+    private fun probeFire(player: OMLPlayer): Boolean {
+        val cow = spawned ?: return false
+        if (cow.removed) return false
+        val lit = cow.setOnFire(FIRE_TICKS)
+        val burning = cow.onFire
+        val ticks = cow.fireTicks
+        val extinguished = cow.clearFire()
+        val unlit = cow.onFire
+        val clearedAgain = cow.clearFire()
+        val at = player.position
+        val strider = player.world.spawnLivingEntity(STRIDER, at.x - 2.5, at.y + 1.0, at.z - 2.5) ?: return false
+        val refused = strider.setOnFire(FIRE_TICKS)
+        val immuneStaysUnlit = !strider.onFire
+        strider.remove()
+        E2E.check(
+            "api.entity_fire",
+            lit && burning && ticks in 1..FIRE_TICKS && extinguished && !unlit && !clearedAgain &&
+                !refused && immuneStaysUnlit,
+            "setOnFire($FIRE_TICKS)=$lit burning=$burning ticks=$ticks, clearFire=$extinguished then " +
+                "$clearedAgain; the fire-immune $STRIDER answered $refused and burning=$immuneStaysUnlit",
+        )
+        return true
+    }
+
+    /**
      * Takes the entity out of the level and checks the game's own query stops listing it. It waits for the
-     * motion step to report first: that step reads this same entity, and freeing it while the read is
-     * pending would leave the pending step with nothing to measure.
+     * steps that share this entity to report first: freeing the handle while one of them is still reading
+     * it leaves that step with nothing to measure.
      */
     private fun probeRemoval(player: OMLPlayer): Boolean {
-        if ("api.entity_motion" !in reported) return false
+        if (!setOf("api.entity_motion", "api.entity_hurt", "api.entity_fire").all { it in reported }) return false
         val cow = spawned ?: return false
         if (!cow.remove()) {
             E2E.check("api.entity_removal", false, "the game refused to remove the spawned $COW")

@@ -119,6 +119,7 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider, OM
                     "api.player_permissions", "api.player_teleport",
                     "api.entity_spawn", "api.entity_motion", "api.entity_removal", "api.block_state",
                     "api.world_particles", "event.player_respawned",
+                    "api.entity_attributes", "api.entity_hurt", "api.entity_fire",
                     "scheduler.server_task", "scheduler.client_task",
                     "api.server_broadcast", "api.player_system_message",
                     "event.block_break", "event.entity_attack", "event.entity_interact", "event.living_hurt",
