@@ -72,6 +72,12 @@ object WorldProbe {
     private const val MOD_DAMAGE_MESSAGE = "oml_testmod.melts"
     private const val OVERWORLD = "minecraft:overworld"
 
+    /** A rule that exists in every vanilla dimension, so the flip-and-restore has a guaranteed subject. */
+    private const val KEEP_INVENTORY_RULE = "minecraft:keep_inventory"
+
+    /** A dust colour in the game's own packed form: 0xRRGGBB. */
+    private const val DUST_COLOR = 0xFF5500
+
     /** X motion written to the spawned cow; the game has to integrate it into the position. */
     private const val MOTION_X = 0.6
 
@@ -84,6 +90,19 @@ object WorldProbe {
 
     /** A probe whose precondition has not been met for this many ticks has a defect, not a slow world. */
     private const val GIVE_UP_TICKS = 600
+
+    /**
+     * How long one weather phase may take: the game moves its live rain level by 0.01 per weather tick and
+     * reads rain above 0.2, thunder above 0.9, so a write shows up twenty-odd ticks later, thunder about a
+     * hundred, and walking back down through the rain threshold takes eighty.
+     */
+    private const val WEATHER_RAMP_WAIT_TICKS = 250
+
+    /** How long the storm phase is asked to hold, comfortably past the wait it has to survive. */
+    private const val WEATHER_HOLD_TICKS = 600
+
+    /** The weather states the probe drives in order: a known-clear start, the storm, then clear again. */
+    private val WEATHER_DRIVE = listOf(false to false, true to true, false to false)
 
     /** Dedicated run or client run, asked through OMLCore reflectively. */
     private val dedicated: Boolean = runCatching {
@@ -149,6 +168,15 @@ object WorldProbe {
     /** Armed only around the driven respawn, so a player respawning on their own cannot satisfy the check. */
     @Volatile
     private var driveRespawnWindow = false
+
+    /** Which [WEATHER_DRIVE] state [probeWeather] has to reach next. */
+    private var weatherPhase = 0
+
+    /** The current weather phase's write is done and only the game's ramped read is pending. */
+    private var weatherWritten = false
+
+    /** Ticks spent waiting for the live weather read to catch up with the write. */
+    private var weatherWait = 0
 
     /** Everything [Events.BLOCK_USED] hands a handler, kept for the driving step to assert against. */
     private data class BlockUse(
@@ -314,9 +342,12 @@ object WorldProbe {
         tickScheduler(serverRun)
         step("api.server_level_lookup") { probeLevelLookup() }
         step("api.registry_reads") { probeRegistries() }
-        // Both of these need no player, so they also run on the headless dedicated-server gate.
+        // None of these need a player, so they also run on the headless dedicated-server gate.
         step("event.level_tick") { probeLevelTick() }
         step("content.damage_type") { probeDeclaredDamageType() }
+        step("api.world_weather") { probeWeather() }
+        step("api.server_game_rules") { probeGameRules() }
+        step("api.world_particles_arguments") { probeArgumentParticles() }
         val player = OMLGame.server?.players?.firstOrNull() ?: return@guard
         step("api.player_handle") { probePlayerHandle(player) }
         step("api.player_inventory") { probeInventory(player) }
@@ -551,6 +582,111 @@ object WorldProbe {
             "api.server_level_lookup",
             resolved.all { (id, read) -> read == (id to false) } && absent == null,
             "resolved=${resolved.joinToString { (id, read) -> "$id->$read" }} unregistered id -> $absent",
+        )
+        return true
+    }
+
+    /**
+     * The write reaches the server's weather record; what the level reads is a ramped value the game moves
+     * by 0.01 on its own weather tick, so the probe drives clear → storm → clear and waits for the live
+     * read to follow each write. Each wait re-resolves the projection, so a read cached in the wrapper
+     * would never see the ramp and the phase would expire instead of passing.
+     *
+     * Both refusals are re-checked every tick: a client-side level does not own the weather, and the game
+     * scales thunder by the rain level, so it cannot represent thunder without rain.
+     */
+    private fun probeWeather(): Boolean {
+        val server = OMLGame.server ?: return false
+        val world = server.level(OVERWORLD) ?: return false
+        val clientWorld = if (dedicated) null else OMLGame.client?.world
+        val thunderWithoutRain = world.setWeather(raining = false, thundering = true)
+        val clientTookWrite = clientWorld?.setWeather(raining = true) == true
+        if (thunderWithoutRain || clientTookWrite) {
+            E2E.check(
+                "api.world_weather",
+                false,
+                "thunder without rain accepted=$thunderWithoutRain, " +
+                    "client-side level took the write=$clientTookWrite",
+            )
+            return true
+        }
+        val (raining, thundering) = WEATHER_DRIVE[weatherPhase]
+        if (!weatherWritten) {
+            val hold = if (raining) WEATHER_HOLD_TICKS else 0
+            if (!world.setWeather(raining = raining, thundering = thundering, durationTicks = hold)) return false
+            weatherWritten = true
+            return false
+        }
+        val live = server.level(OVERWORLD) ?: return false
+        if (live.isRaining == raining && live.isThundering == thundering) {
+            weatherWritten = false
+            weatherWait = 0
+            if (++weatherPhase == WEATHER_DRIVE.size) {
+                E2E.check("api.world_weather", true, "the live read followed the write into the storm and back out")
+                return true
+            }
+            return false
+        }
+        if (++weatherWait > WEATHER_RAMP_WAIT_TICKS) {
+            E2E.check(
+                "api.world_weather",
+                false,
+                "phase $weatherPhase asked for $raining/$thundering and the live read stayed " +
+                    "${live.isRaining}/${live.isThundering} for $weatherWait ticks",
+            )
+            return true
+        }
+        return false
+    }
+
+    /**
+     * Game rules addressed by registry id, read and written in the game's own spelling. The value is
+     * flipped and restored; the refusals are the half that cannot be faked — an unregistered id, and a
+     * value the rule's own serializer will not parse.
+     */
+    private fun probeGameRules(): Boolean {
+        val server = OMLGame.server ?: return false
+        val original = server.gameRule(KEEP_INVENTORY_RULE) ?: return false
+        val flipped = if (original == "true") "false" else "true"
+        val wrote = server.setGameRule(KEEP_INVENTORY_RULE, flipped)
+        val readBack = server.gameRule(KEEP_INVENTORY_RULE)
+        val restored = server.setGameRule(KEEP_INVENTORY_RULE, original)
+        val listed = OMLRegistries.gameRules.contains(KEEP_INVENTORY_RULE)
+        val unknownRead = server.gameRule("oml_testmod:absent")
+        val unknownWrite = server.setGameRule("oml_testmod:absent", "true")
+        val unknownListed = OMLRegistries.gameRules.contains("oml_testmod:absent")
+        val unparseable = server.setGameRule(KEEP_INVENTORY_RULE, "3")
+        E2E.check(
+            "api.server_game_rules",
+            wrote && readBack == flipped && restored &&
+                server.gameRule(KEEP_INVENTORY_RULE) == original && listed && !unknownListed &&
+                unknownRead == null && !unknownWrite && !unparseable,
+            "$KEEP_INVENTORY_RULE $original -> $readBack -> ${server.gameRule(KEEP_INVENTORY_RULE)}; " +
+                "in the registry: $listed, unknown id read=$unknownRead write=$unknownWrite " +
+                "listed=$unknownListed, \"3\" into a boolean rule=$unparseable",
+        )
+        return true
+    }
+
+    /**
+     * The three argument-carrying particles a bare id could not express, accepted by the game's own sender,
+     * and the rejections: an unknown item, an unknown block, and a client-side level.
+     */
+    private fun probeArgumentParticles(): Boolean {
+        val server = OMLGame.server ?: return false
+        val world = server.level(OVERWORLD) ?: return false
+        val item = world.spawnItemParticles("minecraft:diamond_sword", 0.5, 200.0, 0.5, count = 4)
+        val block = world.spawnBlockParticles("minecraft:stone", 0.5, 200.0, 0.5, count = 4)
+        val dust = world.spawnDustParticles(DUST_COLOR, 1.5f, 0.5, 200.0, 0.5, count = 4)
+        val unknownItem = world.spawnItemParticles("oml_testmod:absent", 0.5, 200.0, 0.5)
+        val unknownBlock = world.spawnBlockParticles("oml_testmod:absent", 0.5, 200.0, 0.5)
+        val clientWorld = if (dedicated) null else OMLGame.client?.world
+        val clientRefused = clientWorld?.spawnItemParticles("minecraft:diamond_sword", 0.0, 100.0, 0.0)
+        E2E.check(
+            "api.world_particles_arguments",
+            item && block && dust && !unknownItem && !unknownBlock && (clientWorld == null || clientRefused == false),
+            "item=$item block=$block dust=$dust accepted; unknown item=$unknownItem unknown block=$unknownBlock" +
+                (if (clientWorld == null) "" else "; client-side level=$clientRefused"),
         )
         return true
     }
