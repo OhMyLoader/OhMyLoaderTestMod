@@ -140,7 +140,7 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider, OM
                     "event.level_tick", "content.damage_type",
                     "api.world_weather", "api.server_game_rules", "api.world_particles_arguments",
                     "api.world_clock", "api.clock_markers", "api.clock_rate_and_pause",
-                    "api.clock_client_sync",
+                    "api.clock_client_sync", "api.world_container", "api.player_opened_menu",
                     "scheduler.server_task", "scheduler.client_task",
                     "api.server_broadcast", "api.player_system_message",
                     "event.block_break", "event.entity_attack", "event.entity_interact", "event.living_hurt",

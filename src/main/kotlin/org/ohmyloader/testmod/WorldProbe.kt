@@ -7,6 +7,7 @@ import org.ohmyloader.api.tick.OMLScheduler
 import org.ohmyloader.api.tick.OMLSide
 import org.ohmyloader.api.tick.OMLTask
 import org.ohmyloader.api.world.OMLBlockPos
+import org.ohmyloader.api.world.OMLBlockState
 import org.ohmyloader.api.world.OMLEntity
 import org.ohmyloader.api.world.OMLLivingEntity
 import org.ohmyloader.api.world.OMLPlayer
@@ -66,6 +67,25 @@ object WorldProbe {
 
     /** A registered damage type the hurt probe deals through the game's own path. */
     private const val CACTUS_DAMAGE = "minecraft:cactus"
+
+    /** A block whose slots refuse some items by its own rule: a furnace's output and fuel slots. */
+    private const val FURNACE = "minecraft:furnace"
+
+    /**
+     * The menu id the game gives a single chest: its own `generic_9x3` layout, not the block's id — which is
+     * why the read reports the registry name the game holds instead of anything OML could derive.
+     */
+    private const val CHEST_MENU = "minecraft:generic_9x3"
+    private const val CHEST_SLOTS = 27
+    private const val FURNACE_SLOTS = 3
+
+    /** How far along x the probes look for a column with ground under it and air above. */
+    private const val POCKET_SEARCH_RANGE = 12
+
+    /** The furnace's own refusal rules, read from its block entity: fuel slot and output slot. */
+    private const val FURNACE_INPUT = 0
+    private const val FURNACE_FUEL = 1
+    private const val FURNACE_OUTPUT = 2
 
     /** The damage type [OMLTestMod] declares; the game must have loaded it from OML's content pack. */
     private const val MOD_DAMAGE_TYPE = "oml_testmod:test_melt"
@@ -444,6 +464,8 @@ object WorldProbe {
         step("api.entity_fire") { probeFire(player) }
         step("api.entity_removal") { probeRemoval(player) }
         step("api.block_state") { probeBlockState(player) }
+        step("api.world_container") { probeContainer(player) }
+        step("api.player_opened_menu") { probeOpenedMenu(player) }
         step("api.world_particles") { probeParticles(player) }
         // Last: it kills the player and brings them back, so nothing may depend on the handle afterwards.
         step("event.player_respawned") { driveRespawn(player) }
@@ -1482,6 +1504,119 @@ object WorldProbe {
     }
 
     /**
+     * Storage a block holds, read and written through the game's own container methods. The chest half is
+     * the arithmetic (write, count, take what comes out, take what does not fit); the furnace half is the
+     * part OML must not decide for itself — the block's own slot rules, which refuse the output slot and
+     * any non-fuel in the fuel slot, and which a write therefore cannot paste over.
+     *
+     * A block with no storage and an unloaded position both answer null, which is the check that the
+     * projection asks the game rather than defaulting to an empty container.
+     */
+    private fun probeContainer(player: OMLPlayer): Boolean {
+        val world = player.world
+        val feet = player.blockPosition
+        val spots = airPockets(world, feet, 2) ?: return false
+        val (chestPos, chestOriginal) = spots[0]
+        val (furnacePos, furnaceOriginal) = spots[1]
+        if (!world.setBlock(chestPos, CHEST) || !world.setBlock(furnacePos, FURNACE)) return false
+        val chest = world.containerAt(chestPos) ?: return false
+        val furnace = world.containerAt(furnacePos)
+        val unloaded = world.containerAt(OMLBlockPos(feet.x + 100_000, feet.y, feet.z))
+        val startedEmpty = chest.isEmpty && chest.itemAt(0)?.isEmpty == true
+        val wrote = chest.setSlot(0, STONE, 5)
+        val readBack = chest.itemAt(0)
+        val counted = chest.countOf(STONE)
+        val cleared = chest.setSlot(0, STONE, 0)
+        val afterClear = chest.isEmpty
+        chest.setSlot(0, STONE, 5)
+        val tookSome = chest.takeSlot(0, 3)
+        val leftAfterTake = chest.countOf(STONE)
+        val tookRest = chest.takeSlot(0, 99)
+        val outOfRangeWrite = chest.setSlot(CHEST_SLOTS, STONE, 1)
+        val unknownWrite = chest.setSlot(0, "oml_testmod:absent", 1)
+        val furnacePlaced = furnace?.setSlot(FURNACE_INPUT, STONE, 1)
+        val outputRefused = furnace?.setSlot(FURNACE_OUTPUT, STONE, 1)
+        // Both blocks go back before the last read, so "a block with no storage" is measured on ground the
+        // probe restored rather than on one it left behind.
+        world.setBlockState(furnacePos, furnaceOriginal)
+        world.setBlockState(chestPos, chestOriginal)
+        val notStorage = world.containerAt(chestPos)
+        val flags = listOf(
+            "the chest addresses 27 slots" to (chest.size == CHEST_SLOTS),
+            "a new chest is empty" to startedEmpty,
+            "write accepted" to wrote,
+            "the block holds what was written" to (readBack?.id == STONE && readBack.count == 5),
+            "counting agrees" to (counted == 5),
+            "a zero count clears the slot" to (cleared && afterClear),
+            "taking part of a stack" to (tookSome?.count == 3 && leftAfterTake == 2),
+            "taking more than held gives what was there" to (tookRest?.count == 2 && chest.isEmpty),
+            "out of range read and write both refuse" to
+                (chest.itemAt(CHEST_SLOTS) == null && !outOfRangeWrite),
+            "unknown id refuses" to !unknownWrite,
+            "a furnace addresses 3 slots" to (furnace?.size == FURNACE_SLOTS),
+            "the furnace's input accepts" to (furnacePlaced == true),
+            "the fuel slot refuses a non-fuel" to (furnace?.canPlace(FURNACE_FUEL, STONE, 1) == false),
+            "the output slot refuses" to (furnace?.canPlace(FURNACE_OUTPUT, STONE, 1) == false),
+            "a refused slot cannot be written past" to (outputRefused == false),
+            "a block without storage is not a container" to (notStorage == null),
+            "an unloaded position has no container" to (unloaded == null),
+        )
+        E2E.check(
+            "api.world_container",
+            flags.all { it.second },
+            "${flags.filterNot { it.second }.map { it.first }} failed of ${flags.size}; chest $chestPos " +
+                "size=${chest.size} wrote=$wrote read=${readBack?.id}x${readBack?.count} counted=$counted " +
+                "took=${tookSome?.count} left=$leftAfterTake rest=${tookRest?.count}; furnace $furnacePos " +
+                "size=${furnace?.size} canPlace(input/fuel/output)=" +
+                "${furnace?.canPlace(FURNACE_INPUT, STONE, 1)}/${furnace?.canPlace(FURNACE_FUEL, STONE, 1)}" +
+                "/${furnace?.canPlace(FURNACE_OUTPUT, STONE, 1)}, restored=$notStorage",
+        )
+        return true
+    }
+
+    /**
+     * Which menu the game has this player using, and who it counts as using a block. The open is driven
+     * through the game's own `ServerPlayer.openMenu` — the same call a chest interaction ends in — because
+     * OML hands out no way to open a screen: what is under test is the read and the close.
+     *
+     * The viewer list is the game's own bookkeeping, and a chest gets it from the **menu constructor**
+     * (`ChestMenu` calls `Container.startOpen`), so it only names the player while a menu exists — which is
+     * exactly the pair of readings the step checks: open menu id plus one user, closed with no id and none.
+     */
+    private fun probeOpenedMenu(player: OMLPlayer): Boolean {
+        val world = player.world
+        val pos = airPockets(world, player.blockPosition, 1, startAt = 4)?.first()?.first ?: return false
+        val original = world.blockStateAt(pos) ?: return false
+        if (!world.setBlock(pos, CHEST)) return false
+        val atRest = player.openedMenuId
+        val blockEntity = world.platform.call("getBlockEntity", gameBlockPos(pos))
+        val opened = blockEntity?.let { player.platform.call("openMenu", it) } != null
+        val whileOpen = player.openedMenuId
+        val users = world.containerAt(pos)?.openedBy ?: emptyList()
+        val closed = player.closeOpenedMenu()
+        val afterClose = player.openedMenuId
+        val closeAgain = player.closeOpenedMenu()
+        world.setBlockState(pos, original)
+        val flags = listOf(
+            "no menu at rest" to (atRest == null),
+            "the game opened the chest" to opened,
+            "the menu is the chest's" to (whileOpen == CHEST_MENU),
+            "the game names the player as its user" to (users == listOf(player.name)),
+            "the close was taken" to closed,
+            "no menu after the close" to (afterClose == null),
+            "closing nothing answers false" to !closeAgain,
+        )
+        E2E.check(
+            "api.player_opened_menu",
+            flags.all { it.second } && atRest == null,
+            "${flags.filterNot { it.second }.map { it.first }} failed of ${flags.size}; atRest=$atRest, " +
+                "opened=$whileOpen, users=$users (wanted ${player.name}), closed -> $afterClose, " +
+                "second close=$closeAgain, block at $pos restored to ${world.blockAt(pos)}",
+        )
+        return true
+    }
+
+    /**
      * Acceptance, not delivery: what this side of the game can be held to is that a registered simple
      * particle goes out through the game's own sender, and that the two kinds it refuses — an unknown id,
      * and a particle type that needs arguments a bare id cannot carry — come back false on either side.
@@ -1842,6 +1977,34 @@ object WorldProbe {
             if (world.blockAt(pos) != AIR) return pos
         }
         return null
+    }
+
+    /**
+     * [count] positions to place blocks in: air with solid ground under it, walked outward along x from the
+     * player on both sides. The block that was there comes back with each one, so a probe restores what it
+     * found instead of leaving terrain behind. Searching rather than guessing matters: one column over can
+     * be a ledge with nothing under it for eight blocks, and a probe that gives up on that reports a missing
+     * spot instead of a missing API. Columns are skipped at the player's own position, so placing a block
+     * never puts one inside the player.
+     */
+    private fun airPockets(
+        world: OMLWorld,
+        feet: OMLBlockPos,
+        count: Int,
+        startAt: Int = 1,
+    ): List<Pair<OMLBlockPos, OMLBlockState>>? {
+        val found = mutableListOf<Pair<OMLBlockPos, OMLBlockState>>()
+        var offset = startAt
+        while (found.size < count && offset <= POCKET_SEARCH_RANGE) {
+            for (step in intArrayOf(offset, -offset)) {
+                val ground = firstSolid(world, OMLBlockPos(feet.x + step, feet.y - 1, feet.z), 8) ?: continue
+                val pos = OMLBlockPos(ground.x, ground.y + 1, ground.z)
+                val original = world.blockStateAt(pos) ?: continue
+                if (original.blockId == AIR && found.none { it.first == pos }) found += pos to original
+            }
+            offset++
+        }
+        return found.takeIf { it.size >= count }
     }
 
     private fun interactionPass(): Any = gameClass("net.minecraft.world.InteractionResult").getField("PASS").get(null)
