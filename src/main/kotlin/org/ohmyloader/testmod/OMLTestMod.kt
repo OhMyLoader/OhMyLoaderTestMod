@@ -63,6 +63,16 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider, OM
             overrideSpeed("minecraft:dirt", 4.0f)
         }
         println("[oml_testmod] declared item: $sword")
+        // Damage-type probe: OML turns this into `data/oml_testmod/damage_type/test_melt.json` inside the
+        // injected content pack, so the game's own datapack reload registers it — WorldProbe then reads it
+        // back from `OMLRegistries.damageTypes` and hurts a cow with it, where the `LIVING_HURT` handler
+        // has to report "oml_testmod.melts" as the damage type.
+        registry.declareDamageType(
+            id = "test_melt",
+            messageId = "oml_testmod.melts",
+            effects = "burning",
+            exhaustion = 0.2f,
+        )
         E2E.hit("content.declared")
     }
 
@@ -80,6 +90,9 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider, OM
                 "command.executed", "config.generated", "network.unknown_player",
                 "event.server_started", "api.server_handle", "api.server_level_lookup",
                 "api.registry_reads", "scheduler.server_task",
+                // Neither needs a player: the server ticks its own levels and the content pack is
+                // reloaded during boot, so both also hold on this headless run.
+                "event.level_tick", "content.damage_type",
             )
         } else {
             // Deliberately not expected here, because a session that stops at the main menu does not
@@ -120,6 +133,9 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider, OM
                     "api.entity_spawn", "api.entity_motion", "api.entity_removal", "api.block_state",
                     "api.world_particles", "event.player_respawned",
                     "api.entity_attributes", "api.entity_hurt", "api.entity_fire",
+                    // In singleplayer these are the two-level case: the integrated level and the rendered
+                    // one each report their own tick, and the mod's damage type is loaded either way.
+                    "event.level_tick", "content.damage_type",
                     "scheduler.server_task", "scheduler.client_task",
                     "api.server_broadcast", "api.player_system_message",
                     "event.block_break", "event.entity_attack", "event.entity_interact", "event.living_hurt",

@@ -67,6 +67,11 @@ object WorldProbe {
     /** A registered damage type the hurt probe deals through the game's own path. */
     private const val CACTUS_DAMAGE = "minecraft:cactus"
 
+    /** The damage type [OMLTestMod] declares; the game must have loaded it from OML's content pack. */
+    private const val MOD_DAMAGE_TYPE = "oml_testmod:test_melt"
+    private const val MOD_DAMAGE_MESSAGE = "oml_testmod.melts"
+    private const val OVERWORLD = "minecraft:overworld"
+
     /** X motion written to the spawned cow; the game has to integrate it into the position. */
     private const val MOTION_X = 0.6
 
@@ -107,6 +112,12 @@ object WorldProbe {
     /** What the hook saw of the damage this probe **dealt**: amount, damage type, and whether an attacker
      *  was credited — the same three things a mob's own attack arrives with. */
     private var hurtActionObservation: Triple<Float, String, Boolean>? = null
+
+    /** LEVEL_TICK counts and first-seen dimensions, kept per side: the same run ticks two levels. */
+    private var serverLevelTicks = 0
+    private var clientLevelTicks = 0
+    private var firstServerLevel: String? = null
+    private var firstClientLevel: String? = null
 
     /** Where [driveHurtRewrite] got to: 0 control damage pending, 1 waiting out the game's cooldown, 2 reported. */
     private var rewritePhase = 0
@@ -276,6 +287,18 @@ object WorldProbe {
         Events.PLAYER_RESPAWNED.register { event ->
             if (driveRespawnWindow) respawnObservation = event.player
         }
+        // Fires up to twice per tick per dimension in singleplayer, so it only counts and remembers the
+        // first dimension each side reported; the assertions live in the step below.
+        Events.LEVEL_TICK.register { event ->
+            val level = event.level
+            if (level.isClient) {
+                clientLevelTicks++
+                if (firstClientLevel == null) firstClientLevel = level.dimensionId
+            } else {
+                serverLevelTicks++
+                if (firstServerLevel == null) firstServerLevel = level.dimensionId
+            }
+        }
     }
 
     /** Client-side pass. */
@@ -291,6 +314,9 @@ object WorldProbe {
         tickScheduler(serverRun)
         step("api.server_level_lookup") { probeLevelLookup() }
         step("api.registry_reads") { probeRegistries() }
+        // Both of these need no player, so they also run on the headless dedicated-server gate.
+        step("event.level_tick") { probeLevelTick() }
+        step("content.damage_type") { probeDeclaredDamageType() }
         val player = OMLGame.server?.players?.firstOrNull() ?: return@guard
         step("api.player_handle") { probePlayerHandle(player) }
         step("api.player_inventory") { probeInventory(player) }
@@ -497,8 +523,25 @@ object WorldProbe {
         return true
     }
 
-    /** `OMLServer.level`: every dimension the server reports loaded resolves to its own server-side level. */
-    private fun probeLevelLookup(): Boolean {
+    /**
+     * `Events.LEVEL_TICK` has to fire once per tick per level, on the side that ticks it, carrying that
+     * level's own projection. Singleplayer is the case that matters: the integrated level and the rendered
+     * one are both dispatched, so each counter moves and each reports its own `isClient`.
+     */
+    private fun probeLevelTick(): Boolean {
+        if (serverLevelTicks < 2) return false
+        if (!dedicated && clientLevelTicks < 2) return false
+        E2E.check(
+            "event.level_tick",
+            firstServerLevel == OVERWORLD && (dedicated || firstClientLevel == OVERWORLD),
+            "server-side levels ticked $serverLevelTicks times (first dimension $firstServerLevel), client-side " +
+                "$clientLevelTicks times (first dimension $firstClientLevel), on a " +
+                "${if (dedicated) "dedicated-server" else "singleplayer"} run",
+        )
+        return true
+    }
+
+    /** `OMLServer.level`: every dimension the server reports loaded resolves to its own server-side level. */    private fun probeLevelLookup(): Boolean {
         val server = OMLGame.server ?: return false
         val dimensions = server.dimensionIds
         if (dimensions.isEmpty()) return false
@@ -834,29 +877,71 @@ object WorldProbe {
     /**
      * Deals damage with the API instead of receiving it: the amount, the damage type and the credited
      * attacker have to arrive at the loader's own `LIVING_HURT` hook exactly as a mob's attack does, and
-     * the health has to drop by what the game applied. An unregistered damage type is refused.
+     * the health has to drop by what the game applied. The unregistered id is driven **first** so its
+     * refusal cannot be the game's damage cooldown talking.
      */
     private fun probeDealtDamage(player: OMLPlayer): Boolean {
         val cow = spawned ?: return false
         if (cow.removed) return false
-        val healthBefore = cow.health
+        val absent = driveDamageWith(cow, "oml_testmod:absent")
+        val cactus = driveDamageWith(cow, CACTUS_DAMAGE, player)
+        E2E.check(
+            "api.entity_hurt",
+            cactus.applied && cactus.observed == Triple(HURT_AMOUNT, "cactus", true) &&
+                cactus.cost == HURT_AMOUNT && !absent.applied && absent.observed == null,
+            "hurt returned ${cactus.applied}, the hook saw ${cactus.observed}, health cost ${cactus.cost}; " +
+                "unregistered damage type applied=${absent.applied} and reached no handler",
+        )
+        return true
+    }
+
+    /** What one dealt-damage drive produced: the game's answer, what the hook saw, the health it cost. */
+    private data class DealtDamage(
+        val applied: Boolean,
+        val observed: Triple<Float, String, Boolean>?,
+        val cost: Float,
+    )
+
+    private fun driveDamageWith(
+        target: OMLLivingEntity,
+        damageTypeId: String,
+        attacker: OMLPlayer? = null,
+    ): DealtDamage {
         hurtActionObservation = null
-        drivenUuid = cow.uuid
+        drivenUuid = target.uuid
         driveHurtAction = true
+        val healthBefore = target.health
         val applied = try {
-            cow.hurt(CACTUS_DAMAGE, HURT_AMOUNT, player)
+            target.hurt(damageTypeId, HURT_AMOUNT, attacker)
         } finally {
             driveHurtAction = false
         }
-        val unknown = cow.hurt("oml_testmod:absent", HURT_AMOUNT)
-        val seen = hurtActionObservation
-        val healthAfter = cow.health
+        return DealtDamage(applied, hurtActionObservation, healthBefore - target.health)
+    }
+
+    /**
+     * The damage type [OMLTestMod] declared has to be the game's own registration: OML served it as a
+     * datapack file, the game's reload turned it into a registry entry, and `hurt()` then accepts its id —
+     * with the `LIVING_HURT` handler reporting the message id the declaration named, and the health cost
+     * equal to the amount asked for.
+     *
+     * Needs no player, so it also runs on the headless server gate. The cow is spawned high in open air and
+     * hurt in the same tick, so neither the terrain nor fall damage can move the measured cost.
+     */
+    private fun probeDeclaredDamageType(): Boolean {
+        val server = OMLGame.server ?: return false
+        val world = server.level(OVERWORLD) ?: return false
+        if (!OMLRegistries.damageTypes.contains(MOD_DAMAGE_TYPE)) return false
+        val cow = world.spawnLivingEntity(COW, 0.5, 200.0, 0.5) ?: return false
+        val absent = driveDamageWith(cow, "oml_testmod:absent")
+        val melt = driveDamageWith(cow, MOD_DAMAGE_TYPE)
+        cow.remove()
         E2E.check(
-            "api.entity_hurt",
-            applied && seen?.first == HURT_AMOUNT && seen?.second == "cactus" && seen?.third == true &&
-                healthBefore - healthAfter == HURT_AMOUNT && !unknown,
-            "hurt returned $applied, the hook saw $seen, health $healthBefore -> $healthAfter, " +
-                "unregistered damage type -> $unknown",
+            "content.damage_type",
+            melt.applied && melt.observed == Triple(HURT_AMOUNT, MOD_DAMAGE_MESSAGE, false) &&
+                melt.cost == HURT_AMOUNT && !absent.applied,
+            "the game registered $MOD_DAMAGE_TYPE and applied it: the hook saw ${melt.observed} for " +
+                "${melt.cost} health; an unregistered id applied=${absent.applied}",
         )
         return true
     }
