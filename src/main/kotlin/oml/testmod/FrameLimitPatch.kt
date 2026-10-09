@@ -1,4 +1,4 @@
-package org.ohmyloader.testmod
+package oml.testmod
 
 import org.ohmyloader.api.mixin.CallbackInfo
 import org.ohmyloader.api.mixin.Unique

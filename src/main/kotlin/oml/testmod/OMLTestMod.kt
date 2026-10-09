@@ -1,4 +1,4 @@
-package org.ohmyloader.testmod
+package oml.testmod
 
 import org.ohmyloader.api.Mod
 import org.ohmyloader.api.ModContext
@@ -9,7 +9,16 @@ import org.ohmyloader.api.command.OMLCommandProvider
 import org.ohmyloader.api.command.OMLCommandRegistry
 import org.ohmyloader.api.content.ContentRegistry
 import org.ohmyloader.api.content.OMLContentProvider
-import org.ohmyloader.api.event.Events
+import net.minecraft.client.gui.screens.BackupConfirmScreen
+import net.minecraft.core.registries.BuiltInRegistries
+import net.minecraft.core.registries.Registries
+import net.minecraft.core.component.DataComponentMap
+import net.minecraft.core.component.DataComponents
+import net.minecraft.resources.Identifier
+import net.minecraft.resources.ResourceKey
+import org.ohmyloader.api26_3.OMLGame
+import org.ohmyloader.api26_3.currentScreen
+import org.ohmyloader.api26_3.event.Events
 import org.ohmyloader.api.network.OMLNetworkProvider
 import org.ohmyloader.api.network.OMLNetworkRegistry
 
@@ -195,14 +204,14 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider, OM
             E2E.hit("event.gui_open")
             guiEvents++
             if (guiEvents <= 3) {
-                println("[oml_testmod] GuiOpenEvent (first 3): screen=${event.screen?.platform?.javaClass?.name} canceled=${event.canceled}")
+                println("[oml_testmod] GuiOpenEvent (first 3): screen=${event.screen?.javaClass?.name} canceled=${event.canceled}")
             }
         }
 
         Events.WORLD_LOAD.register { event ->
             E2E.hit("event.world_load")
             if (event.world != null) NetworkProbe.worldLoaded()
-            println("[oml_testmod] WorldLoadEvent: world=${event.world?.platform?.javaClass?.name ?: "null (disconnected)"}")
+            println("[oml_testmod] WorldLoadEvent: world=${event.world?.javaClass?.name ?: "null (disconnected)"}")
         }
 
         Events.CHAT_SENT.register { event ->
@@ -222,14 +231,11 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider, OM
             E2E.hit("hud.rendered")
         }
 
-        // The side is asked through OMLCore (reflective: this mod compiles against oml-api only).
+        // A dedicated server never boots a client, so the game's own client instance is the side test.
         if (isServerSide()) println("[oml_testmod] running as the dedicated server")
     }
 
-    private fun isServerSide(): Boolean =
-        runCatching {
-            Class.forName("org.ohmyloader.core.OMLCore").getMethod("isServerSide").invoke(null) as Boolean
-        }.getOrDefault(false)
+    private fun isServerSide(): Boolean = OMLGame.client == null
 
     /**
      * In-game data-component probe: reads [test_sword] back out of `BuiltInRegistries.ITEM` and
@@ -241,7 +247,7 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider, OM
      * probe **retries** until the bake has run, and reads a vanilla item (`diamond_sword`) as the
      * control: "both unbound" means "bake not run yet", while "vanilla bound but ours missing"
      * would mean the bake skipped modded items — a real defect this probe must catch. All
-     * reflection goes through the game class loader; failures print instead of killing mod init.
+     * probe retries until the bake has run, and a failure prints instead of killing mod init.
      */
     private fun probeItemComponents() {
         if (componentsReadOnce) return
@@ -251,65 +257,50 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider, OM
             return
         }
         runCatching {
-            // A mod compiles against oml-api only, so OMLCore is reached reflectively by name —
-            // same pattern MergeProbe uses (org.ohmyloader.* is parent-first, one runtime identity).
-            val loader = Class.forName("org.ohmyloader.core.OMLCore")
-                .getMethod("gameClassLoader").invoke(null) as ClassLoader
-            val vanilla =
-                readComponents(loader, "minecraft", "diamond_sword")
-                    ?: return // bake not run yet (vanilla control is unbound too) — retry on the next tick
-            componentsReadOnce = true
-            println("[oml_testmod] component probe [diamond_sword, control]: max_damage=${vanilla.maxDamage}")
+            val vanilla = readComponents("minecraft", "diamond_sword")
+                ?: return // bake not run yet (vanilla control is unbound too) — retry on the next tick
+            println("[oml_testmod] component probe [diamond_sword, control]: " +
+                "max_damage=${vanilla.get(DataComponents.MAX_DAMAGE)}")
 
-            val ours = readComponents(loader, "oml_testmod", "test_sword")
+            val ours = readComponents("oml_testmod", "test_sword")
                 ?: error("component bake has run (vanilla items bound) but test_sword is NOT bound")
-            println("[oml_testmod] component probe [test_sword]: max_damage=${ours.maxDamage}")
-            E2E.check("content.item_components", true, "max_damage=${ours.maxDamage}")
+            println("[oml_testmod] component probe [test_sword]: max_damage=${ours.get(DataComponents.MAX_DAMAGE)}")
+            E2E.check("content.item_components", true, "max_damage=${ours.get(DataComponents.MAX_DAMAGE)}")
             // The declared values (592 / two ADD_VALUE modifiers / two tool rules) are asserted, not
             // just printed: "the item exists" and "the components the declaration asked for are there"
             // are different claims, and only the second one catches a bake that silently dropped them.
             E2E.check(
                 "content.item_components.max_damage",
-                (ours.maxDamage as? Int) == 592,
-                "expected 592, got ${ours.maxDamage}",
+                ours.get(DataComponents.MAX_DAMAGE) == 592,
+                "expected 592, got ${ours.get(DataComponents.MAX_DAMAGE)}",
             )
 
-            val dataComponents = loader.loadClass("net.minecraft.core.component.DataComponents")
-            val modifiers = ours.getComponent(dataComponents.getField("ATTRIBUTE_MODIFIERS").get(null))
-            val entries = modifiers.javaClass.getMethod("modifiers").invoke(modifiers) as? List<*>
-            for (entry in entries.orEmpty()) {
-                val attribute = entry!!.javaClass.getMethod("attribute").invoke(entry)
-                val modifier = entry.javaClass.getMethod("modifier").invoke(entry)
-                val slot = entry.javaClass.getMethod("slot").invoke(entry)
-                val attrId = (attribute.javaClass.methods
-                    .first { it.name == "unwrapKey" }.invoke(attribute) as java.util.Optional<*>)
-                    .orElse(null)?.toString()
-                val amount = modifier.javaClass.getMethod("amount").invoke(modifier)
-                println("[oml_testmod] component probe [test_sword]: attribute=$attrId amount=$amount slot=$slot")
+            val modifiers = ours.get(DataComponents.ATTRIBUTE_MODIFIERS)
+            for (entry in modifiers?.modifiers().orEmpty()) {
+                println(
+                    "[oml_testmod] component probe [test_sword]: attribute=${entry.attribute().unwrapKey().orElse(null)} " +
+                        "amount=${entry.modifier().amount()} slot=${entry.slot()}",
+                )
             }
 
-            val tool = ours.getComponent(dataComponents.getField("TOOL").get(null))
-            val rules = tool.javaClass.getMethod("rules").invoke(tool) as? List<*>
-            val defaultSpeed = tool.javaClass.getMethod("defaultMiningSpeed").invoke(tool)
-            val damagePerBlock = tool.javaClass.getMethod("damagePerBlock").invoke(tool)
+            val tool = ours.get(DataComponents.TOOL)
             println(
-                "[oml_testmod] component probe [test_sword]: tool(default_mining_speed=$defaultSpeed, " +
-                    "damage_per_block=$damagePerBlock, rules=${rules?.size})",
+                "[oml_testmod] component probe [test_sword]: tool(default_mining_speed=${tool?.defaultMiningSpeed()}, " +
+                    "damage_per_block=${tool?.damagePerBlock()}, rules=${tool?.rules()?.size})",
             )
             E2E.check(
                 "content.item_components.attributes",
-                entries?.size == 2,
-                "expected 2 attribute modifiers, got ${entries?.size}",
+                modifiers?.modifiers()?.size == 2,
+                "expected 2 attribute modifiers, got ${modifiers?.modifiers()?.size}",
             )
             E2E.check(
                 "content.item_components.tool_rules",
-                rules?.size == 2,
-                "expected 2 tool rules, got ${rules?.size}",
+                tool?.rules()?.size == 2,
+                "expected 2 tool rules, got ${tool?.rules()?.size}",
             )
         }.onFailure {
             E2E.check("content.item_components", false, it.toString())
             println("[oml_testmod] component probe failed: $it")
-            // The reflective path wraps the real failure; the full chain is what diagnoses it.
             var cause: Throwable? = it.cause
             while (cause != null) {
                 println("[oml_testmod] component probe caused by: $cause")
@@ -318,45 +309,20 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider, OM
         }
     }
 
-    /** The read-back of one item's component map: max damage (null = component absent), the map, and its typed getter. */
-    private class ProbedComponents(
-        val maxDamage: Any?,
-        val map: Any,
-        val getComponent: (Any) -> Any,
-    )
-
     /**
-     * Reads the named item's component map, or null while the holder's component bake has not run
-     * ("Components not bound yet" — vanilla's Holder.Reference guard).
+     * Reads the named item's component map, or null while the holder's component bake has not run —
+     * vanilla's `Holder.Reference` guard throws while the components are unbound.
      */
-    private fun readComponents(loader: ClassLoader, namespace: String, path: String): ProbedComponents? {
-        val identifier = loader.loadClass("net.minecraft.resources.Identifier")
-            .getMethod("fromNamespaceAndPath", String::class.java, String::class.java)
-            .invoke(null, namespace, path)
-        val itemRegistry = loader.loadClass("net.minecraft.core.registries.BuiltInRegistries")
-            .getField("ITEM").get(null)
-        val getById = itemRegistry.javaClass.methods.first {
-            it.name == "get" && it.parameterCount == 1 && it.parameterTypes[0].simpleName == "Identifier"
-        }
-        val holder = (getById.invoke(itemRegistry, identifier) as java.util.Optional<*>)
+    private fun readComponents(namespace: String, path: String): DataComponentMap? {
+        val holder = BuiltInRegistries.ITEM.get(Identifier.fromNamespaceAndPath(namespace, path))
             .orElseThrow { IllegalStateException("$namespace:$path missing from BuiltInRegistries.ITEM") }
-        val item = holder.javaClass.getMethod("value").invoke(holder)
-        val map = try {
-            item.javaClass.getMethod("components").invoke(item)
-        } catch (e: java.lang.reflect.InvocationTargetException) {
-            if (e.cause is NullPointerException) return null // "Components not bound yet"
-            throw e
+        return try {
+            holder.value().components()
+        } catch (e: NullPointerException) {
+            null
         }
-        val getComponent = map.javaClass.methods.first {
-            it.name == "get" && it.parameterCount == 1 && it.parameterTypes[0].simpleName == "DataComponentType"
-        }
-        // The runtime map class (DataComponentMap$Builder$SimpleMap) is package-private; without
-        // this the Method.invoke itself throws IllegalAccessException even for a public method.
-        getComponent.isAccessible = true
-        val dataComponents = loader.loadClass("net.minecraft.core.component.DataComponents")
-        val maxDamage = getComponent.invoke(map, dataComponents.getField("MAX_DAMAGE").get(null))
-        return ProbedComponents(maxDamage, map) { type -> getComponent.invoke(map, type)!! }
     }
+
 
     private var serverDataProbed = false
 
@@ -369,41 +335,28 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider, OM
      * touched by a datapack (our ore merge makes the world's generation lifecycle non-stable)
      * loads behind a [BackupConfirmScreen] that only a human could answer, so the world join and
      * everything downstream of it never happens. The harness proceeds without a backup — the
-     * world was just generated by a server boot and holds nothing to back up. Matched reflectively
-     * by name: this mod compiles against oml-api only.
+     * world was just generated by a server boot and holds nothing to back up.
      */
     private fun dismissBackupGate() {
         runCatching {
-            val loader = Class.forName("org.ohmyloader.core.OMLCore")
-                .getMethod("gameClassLoader").invoke(null) as ClassLoader
-            val minecraft = loader.loadClass("net.minecraft.client.Minecraft")
-                .getMethod("getInstance").invoke(null) ?: return
-            val gui = minecraft.javaClass.getField("gui").get(minecraft)
-            val screen = gui.javaClass.getMethod("screen").invoke(gui) ?: return
+            val screen = OMLGame.client?.currentScreen ?: return
             if (screen === lastBackupGate) return
-            if (screen.javaClass.name != "net.minecraft.client.gui.screens.BackupConfirmScreen") return
+            if (screen !is BackupConfirmScreen) return
             lastBackupGate = screen
             println("[oml_testmod] world gate screen ${screen.javaClass.name} — proceeding without backup")
-            val field = screen.javaClass.getDeclaredField("onProceed")
-            field.isAccessible = true
+            // The proceed callback is a private field holding a package-private listener class: driving
+            // the gate means reaching both, which is the one reflection this mod keeps on purpose.
+            val field = BackupConfirmScreen::class.java.getDeclaredField("onProceed").apply { isAccessible = true }
             val listener = field.get(screen)
             val proceed = listener.javaClass.methods.first { it.name == "proceed" && it.parameterCount == 2 }
-            // The listener is a package-private lambda class; without this even the public
-            // Method.invoke throws IllegalAccessException (same as the component-map getter).
-            proceed.isAccessible = true
+                .apply { isAccessible = true }
             proceed.invoke(listener, false, false)
         }.onFailure {
             println("[oml_testmod] backup-gate dismissal failed: $it")
         }
     }
 
-    /**
-     * Client-side probes for the key-binding and creative-tab features, retried from tick 6: the
-     * bindings apply lazily on the first client tick, and the tab materializes at the registry
-     * freeze point. Both are main-menu-visible, so they are checked on every client run. All
-     * reflection goes through the game class loader; failures print instead of killing mod init
-     * (same pattern as [probeItemComponents]).
-     */
+
     private fun probeClientFeatures() {
         if (clientFeaturesProbed || ticks <= 5) return
         clientProbeAttempts++
@@ -413,18 +366,11 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider, OM
             return
         }
         runCatching {
-            val loader = Class.forName("org.ohmyloader.core.OMLCore")
-                .getMethod("gameClassLoader").invoke(null) as ClassLoader
+            val minecraft = OMLGame.client ?: error("no client instance in this process")
 
             // keybind.registered — the declared binding sits on the live Options.keyMappings array
-            val minecraft = loader.loadClass("net.minecraft.client.Minecraft")
-                .getMethod("getInstance").invoke(null)
-                ?: error("Minecraft.getInstance() is null")
-            val options = minecraft.javaClass.getField("options").get(minecraft)
-            val mappings = options.javaClass.getField("keyMappings").get(options) as Array<*>
-            val bound = mappings.any {
-                it!!.javaClass.getMethod("getName").invoke(it) == "key.oml_testmod.probe"
-            }
+            val mappings = minecraft.options.keyMappings
+            val bound = mappings.any { it.name == "key.oml_testmod.probe" }
             E2E.check(
                 "keybind.registered",
                 bound,
@@ -432,15 +378,8 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider, OM
             )
 
             // creative.tab_registered — the oml:main tab exists in the creative-mode-tab registry
-            val identifier = loader.loadClass("net.minecraft.resources.Identifier")
-                .getMethod("fromNamespaceAndPath", String::class.java, String::class.java)
-                .invoke(null, "oml", "main")
-            val tabRegistry = loader.loadClass("net.minecraft.core.registries.BuiltInRegistries")
-                .getField("CREATIVE_MODE_TAB").get(null)
-            val getById = tabRegistry.javaClass.methods.first {
-                it.name == "get" && it.parameterCount == 1 && it.parameterTypes[0].simpleName == "Identifier"
-            }
-            val tabPresent = (getById.invoke(tabRegistry, identifier) as java.util.Optional<*>).isPresent
+            val tabPresent = BuiltInRegistries.CREATIVE_MODE_TAB
+                .get(Identifier.fromNamespaceAndPath("oml", "main")).isPresent
             E2E.check(
                 "creative.tab_registered",
                 tabPresent,
@@ -454,63 +393,32 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider, OM
         }
     }
 
-    /**
-     * The datapack-content probes (M2): a declared recipe present in the server's recipe manager,
-     * and the declared ore's placed feature present in the worldgen registries. This is the pair
-     * of checks whose absence let four datapack-side defects (recipe JSON shape, missing listing
-     * enumeration, the reload wipe, the server repository gap) pass every gate — blocks and
-     * materialization were verified, the datapack end was not. Runs on the server ticks (the
-     * registries are populated by then) through the game class loader; `serverInstance` comes
-     * from the constructor hook via OMLCore.
-     */
+
     private fun probeServerData() {
         if (serverDataProbed) return
         runCatching {
-            val core = Class.forName("org.ohmyloader.core.OMLCore")
-            val server = core.getField("serverInstance").get(null)
-                ?: return // server not up yet; retry on the next tick
+            val server = OMLGame.server ?: return // server not up yet; retry on the next tick
             serverDataProbed = true
-            val loader = core.getMethod("gameClassLoader").invoke(null) as ClassLoader
-
-            val resourceKey = loader.loadClass("net.minecraft.resources.ResourceKey")
-            val identifier = loader.loadClass("net.minecraft.resources.Identifier")
-            val identifierOf = identifier.getMethod("fromNamespaceAndPath", String::class.java, String::class.java)
-            val keyCreate = resourceKey.getMethod("create", resourceKey, identifier)
-            val registries = loader.loadClass("net.minecraft.core.registries.Registries")
 
             // recipe.loaded — the smelting recipes the techmod declares, read back from the
             // server's own recipe manager
-            val recipeManager = server.javaClass.getMethod("getRecipeManager").invoke(server)
-            val recipeRegistryKey = registries.getField("RECIPE").get(null)
-            val byKey = recipeManager.javaClass.methods.firstOrNull {
-                it.name == "byKey" && it.parameterTypes[0] == resourceKey
-            } ?: error("byKey(ResourceKey) not found on ${recipeManager.javaClass.name}")
-
-            fun recipeLoaded(id: String): Boolean {
-                val key = keyCreate.invoke(null, recipeRegistryKey, identifierOf.invoke(null, "techmod", id))
-                return (byKey.invoke(recipeManager, key) as java.util.Optional<*>).isPresent
-            }
+            fun recipeLoaded(id: String): Boolean = server.recipeManager.byKey(
+                ResourceKey.create(
+                    Registries.RECIPE, Identifier.fromNamespaceAndPath("techmod", id),
+                ),
+            ).isPresent
 
             val recipesOk = recipeLoaded("techmod_raw_copper") && recipeLoaded("techmod_raw_tin")
             E2E.check("recipe.loaded", recipesOk, "techmod smelting recipes missing from the recipe manager")
 
             // worldgen.ore_feature — the placed features the ore declarations materialized.
-            // 26.3 renamed RegistryAccess.registryOrThrow to lookupOrThrow, with several
-            // same-erasure overloads; the registry-returning one is picked by return type.
-            val registryAccess = server.javaClass.getMethod("registryAccess").invoke(server)
-            val registryLookup = registryAccess.javaClass.methods.firstOrNull {
-                it.name == "lookupOrThrow" && it.returnType.simpleName == "Registry"
-            } ?: error("lookupOrThrow(Registry) not found on ${registryAccess.javaClass.name}")
-            val placedFeatureKey = registries.getField("PLACED_FEATURE").get(null)
-            val featureRegistry = registryLookup.invoke(registryAccess, placedFeatureKey)
-            val containsKey = featureRegistry.javaClass.methods.firstOrNull {
-                it.name == "containsKey" && it.parameterTypes[0] == resourceKey
-            } ?: error("containsKey(ResourceKey) not found on ${featureRegistry.javaClass.name}")
+            val placedFeatures = server.registryAccess().lookupOrThrow(Registries.PLACED_FEATURE)
 
-            fun oreFeatureLoaded(id: String): Boolean {
-                val key = keyCreate.invoke(null, placedFeatureKey, identifierOf.invoke(null, "techmod", id))
-                return containsKey.invoke(featureRegistry, key) as Boolean
-            }
+            fun oreFeatureLoaded(id: String): Boolean = placedFeatures.containsKey(
+                ResourceKey.create(
+                    Registries.PLACED_FEATURE, Identifier.fromNamespaceAndPath("techmod", id),
+                ),
+            )
 
             val featuresOk = oreFeatureLoaded("ore_copper_ore") && oreFeatureLoaded("ore_tin_ore")
             E2E.check(
@@ -521,22 +429,13 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider, OM
 
             // command.executed — dispatch our own probe command through the live dispatcher; the
             // hook-driven registration is lazy on the first command, and this IS that first one
-            val gameCommands = server.javaClass.getMethod("getCommands").invoke(server)
-            val commandSource = server.javaClass.getMethod("createCommandSourceStack").invoke(server)
-            val perform = gameCommands.javaClass.methods.first {
-                it.name == "performPrefixedCommand" && it.parameterCount == 2
-            }
-            perform.invoke(gameCommands, commandSource, "oml_e2e_hello")
+            server.commands.performPrefixedCommand(server.createCommandSourceStack(), "oml_e2e_hello")
 
             // modlist.registered — the loader's built-in /oml command joined the same dispatcher;
-            // dispatching it proves the listing runs over the real mod state. The dispatcher holds
-            // the tree behind getRoot(); getChild lives on the node, not the dispatcher.
-            val dispatcher = gameCommands.javaClass.getMethod("getDispatcher").invoke(gameCommands)
-            val rootNode = dispatcher.javaClass.getMethod("getRoot").invoke(dispatcher)
-            val omlNode = rootNode.javaClass.methods.first { it.name == "getChild" }
-                .invoke(rootNode, "oml")
+            // dispatching it proves the listing runs over the real mod state.
+            val omlNode = server.commands.dispatcher.root.getChild("oml")
             E2E.check("modlist.registered", omlNode != null, "the built-in /oml command is not registered")
-            perform.invoke(gameCommands, commandSource, "oml mods")
+            server.commands.performPrefixedCommand(server.createCommandSourceStack(), "oml mods")
 
             // config.generated — the techmod config file was generated with its declared defaults
             val configFile = java.io.File("config/techmod.toml")
@@ -547,4 +446,5 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider, OM
             E2E.check("recipe.loaded", false, "probe failed: ${it.javaClass.simpleName}: ${it.message}")
         }
     }
+
 }

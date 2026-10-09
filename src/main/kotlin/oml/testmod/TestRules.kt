@@ -1,4 +1,4 @@
-package org.ohmyloader.testmod
+package oml.testmod
 
 import org.ohmyloader.api.inject.RuleSet
 import org.ohmyloader.api.inject.RuleSetProvider
@@ -48,12 +48,12 @@ object TestRules : RuleSetProvider {
         classTarget("com/mojang/blaze3d/platform/FramerateLimitTracker") {
             // merged form: merge FrameLimitPatch's members into the target class, so the handler runs
             // with this = target instance
-            merge("org/ohmyloader/testmod/FrameLimitPatch", id = "frame-limit-patch")
+            merge("oml/testmod/FrameLimitPatch", id = "frame-limit-patch")
 
             // static bridge form: the handler lives in TestRules; the injection point calls it via
             // INVOKESTATIC
             method("getFramerateLimit", desc = "()I") {
-                atHead { call("org/ohmyloader/testmod/TestRules", "onFrameLimitRead", "()V") }
+                atHead { call("oml/testmod/TestRules", "onFrameLimitRead", "()V") }
                 require(1)
             }
 

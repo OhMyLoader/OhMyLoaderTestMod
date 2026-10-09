@@ -1,4 +1,4 @@
-package org.ohmyloader.techmod
+package oml.techmod
 
 import org.ohmyloader.api.Mod
 import org.ohmyloader.api.ModContext

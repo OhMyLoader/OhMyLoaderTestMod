@@ -1,10 +1,13 @@
-package org.ohmyloader.testmod
+package oml.testmod
 
-import org.ohmyloader.testmod.MergeProbe.gameLoader
+import net.minecraft.client.Minecraft
+import net.minecraft.resources.Identifier
+import net.minecraft.server.packs.resources.ResourceManager
+import org.ohmyloader.api26_3.OMLGame
+import java.io.IOException
 import java.lang.invoke.MethodHandles
 import java.lang.reflect.Modifier
 import java.net.Proxy
-import java.util.*
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -109,21 +112,15 @@ object MergeProbe {
         // well. Asking there answers "still private final", which is true and is no evidence about the
         // rewrite, so the probe says which side it does not cover rather than printing a line that
         // reads like a broken acceptance point.
-        if (omlCore("isServerSide") as Boolean) {
+        if (OMLGame.client == null) {
             println("[oml_testmod] access rewrite: skipped on the dedicated server (the rule is a client-side hook)")
             return
         }
-        // The game class is asked for through the **game loader**, never through this class's own
-        // loader — see [gameLoader] for what that distinction costs. `getDeclaredField` resolves the
-        // type of *every* declared field, not just the one named, so on the wrong loader the failure
-        // is a `NoClassDefFoundError` about some unrelated library type and says nothing about whether
-        // the access rewrite landed. It is still wrapped: if it ever fails on the right loader, the
-        // chain and the loader of each name are printed rather than swallowed.
-        val field = runCatching {
-            gameLoader().loadClass("net.minecraft.client.Minecraft").getDeclaredField("proxy")
-        }.getOrElse {
-            E2E.check("inject.access_widening", false, "field unreflectable: $it")
-            reportUnreflectable(it)
+        // This mod is loaded as a mod (the main loader defines it and the game classes alike), so its own
+        // `Minecraft` reference is the transformed class the game runs — which is what makes reading the
+        // field's modifiers evidence rather than a look at a second copy.
+        val field = runCatching { Minecraft::class.java.getDeclaredField("proxy") }.getOrElse {
+            E2E.check("inject.access_widening", false, "field unreadable: $it")
             return
         }
         val handle = runCatching {
@@ -139,60 +136,6 @@ object MergeProbe {
             Modifier.isPublic(field.modifiers) && handle.isSuccess,
             "modifiers=${Modifier.toString(field.modifiers)} publicLookup=${if (handle.isSuccess) "usable" else "unusable"}",
         )
-    }
-
-    /**
-     * The loader the **game's own classes** are defined by, asked of the loader instead of read off
-     * this class. `MergeProbe::class.java.classLoader` is the *launcher layer* loader, not the game
-     * loader: OML keeps `org.ohmyloader.` parent-first, so this mod (in that namespace) is defined by
-     * the layer too. The layer's search path is the launch classpath — it carries the game jar (so a
-     * *second*, untransformed copy of every game class is definable from it) but **not** the version's
-     * library directory, and it has no local fallback. Reflecting a game class through it therefore
-     * dies on the first field type that lives in a library jar (on 26.3: `NoClassDefFoundError:
-     * com/mojang/brigadier/Message` on the client, `.../authlib/exceptions/AuthenticationException`
-     * on the server).
-     */
-    private fun gameLoader(): ClassLoader = omlCore("gameClassLoader") as ClassLoader
-
-    /**
-     * One of `OMLCore`'s public static entry points, invoked reflectively.
-     *
-     * By name rather than by type for the reason [gameLoader] gives: a mod compiles against `oml-api`
-     * alone, and the loader's core is an implementation artifact a mod must not gain a compile
-     * dependency on. `OMLCore` is parent-first, so this resolves to the same class OML itself runs.
-     */
-    private fun omlCore(method: String): Any? =
-        Class.forName("org.ohmyloader.core.OMLCore").getMethod(method).invoke(null)
-
-    /**
-     * Why the probe above could not get a `Field` at all, and **which loader** resolved what.
-     *
-     * The failure is printed with its whole cause chain, because the class named by a
-     * `NoClassDefFoundError` is not always the one being looked for — it is the first type that could
-     * not be resolved. A few names this path depends on are then each resolved explicitly and reported
-     * with the loader that answered (a `URLClassLoader` would mean the *layer* answered, i.e. a
-     * duplicate game class, not OML's transformed one). Between "which name failed" and "which loader
-     * answered", the two ways this can go wrong — wrong loader, genuinely unresolvable type — are told
-     * apart without a second run.
-     */
-    private fun reportUnreflectable(failure: Throwable) {
-        println("[oml_testmod] access rewrite: Minecraft.proxy is not reflectable through the game loader; skipping this probe")
-        val chain = generateSequence(failure) { it.cause }
-            .joinToString(" <- ") { "${it.javaClass.name}: ${it.message}" }
-        println("[oml_testmod]   failure chain: $chain")
-        val loader = gameLoader()
-        for (name in listOf(
-            "net.minecraft.client.Minecraft",
-            "net.minecraft.network.chat.Component",
-            "com.mojang.brigadier.Message",
-            "com.mojang.authlib.GameProfile",
-        )) {
-            val where = runCatching { Class.forName(name, false, loader) }.fold(
-                onSuccess = { it.classLoader?.javaClass?.simpleName ?: "bootstrap" },
-                onFailure = { "unresolved ($it)" },
-            )
-            println("[oml_testmod]   $name -> $where")
-        }
     }
 
     private val returnValueLogged = AtomicBoolean(false)
@@ -243,13 +186,12 @@ object MergeProbe {
      *
      * Both access paths the game uses are measured — `getResource` by id and `listResources` by
      * directory (see the inline notes below) — and every hit reports `sourcePackId()` and the byte
-     * count, so the answer is not just "present" but "these bytes were served by pack X". All
-     * reflection goes through [gameLoader]: this mod compiles against `oml-api` only.
+     * count, so the answer is not just "present" but "these bytes were served by pack X".
      */
     @JvmStatic
     fun reportResourceInjection() {
         if (resourceLogged.get()) return
-        val lines = runCatching { probeResources(gameLoader()) }.getOrElse { failure ->
+        val lines = runCatching { probeResources() }.getOrElse { failure ->
             if (resourceLogged.compareAndSet(false, true)) {
                 println("[oml_testmod] resource pack: probe failed -- $failure")
             }
@@ -261,15 +203,10 @@ object MergeProbe {
     private val resourceLogged = AtomicBoolean(false)
 
     /** One line per measurement, or null while the initial reload is still running. */
-    private fun probeResources(loader: ClassLoader): List<String>? {
-        val minecraftClass = loader.loadClass("net.minecraft.client.Minecraft")
-        val minecraft = minecraftClass.getMethod("getInstance").invoke(null) ?: return null
-        val manager = minecraftClass.getMethod("getResourceManager").invoke(minecraft)
-        val parse = loader.loadClass("net.minecraft.resources.Identifier").getMethod("parse", String::class.java)
-        val getResource = manager.javaClass.methods.first { it.name == "getResource" && it.parameterCount == 1 }
+    private fun probeResources(): List<String>? {
+        val manager = OMLGame.client?.resourceManager ?: return null
 
-        fun resourceOf(id: String): Any? =
-            (getResource.invoke(manager, parse.invoke(null, id)) as Optional<*>).orElse(null)
+        fun resourceOf(id: String) = manager.getResource(Identifier.parse(id)).orElse(null)
 
         if (resourceOf("minecraft:blockstates/bedrock.json") == null) return null
 
@@ -286,27 +223,21 @@ object MergeProbe {
             "pack.byid.lang" to "oml_testmod:lang/en_us.json",
         )) {
             val served = resourceOf(id)?.let { resource ->
-                val bytes = (resource.javaClass.getMethod("open").invoke(resource) as java.io.InputStream)
-                    .use { it.readBytes().size }
-                val pack = resource.javaClass.getMethod("sourcePackId").invoke(resource) as String
-                "$bytes byte(s) from $pack"
+                val bytes = try {
+                    resource.open().use { it.readBytes().size }
+                } catch (e: IOException) {
+                    "unreadable ($e)"
+                }
+                "$bytes byte(s) from ${resource.sourcePackId()}"
             } ?: "missing"
             out += "[oml_testmod]   $id -> $served"
             E2E.check(check, served != "missing", "$id -> $served")
         }
 
-        // Selector is a functional interface; a Proxy answering true accepts every candidate
-        val selectorClass = loader.loadClass($$"net.minecraft.server.packs.resources.ResourceManager$Selector")
-        val selector = java.lang.reflect.Proxy.newProxyInstance(loader, arrayOf(selectorClass)) { proxy, method, args ->
-            when (method.name) {
-                "isIncluded" -> true
-                "hashCode" -> System.identityHashCode(proxy)
-                "equals" -> args[0] === proxy
-                "toString" -> "OMLSelectorAll"
-                else -> null
-            }
+        // Every candidate accepted, which is the only thing the listing measurement needs.
+        val selector = object : ResourceManager.Selector {
+            override fun isIncluded(name: Identifier) = true
         }
-        val listResources = manager.javaClass.methods.first { it.name == "listResources" && it.parameterCount == 2 }
         // Discovery by directory — the path that runs through the injected PackResources.listResources
         // and how 26.3 finds sounds (Sound.SOUND_LISTER = FileToIdConverter("sounds", ".ogg")), particles,
         // atlas sprites and blockstates/items.
@@ -319,7 +250,7 @@ object MergeProbe {
             "pack.dir.textures_particle" to "textures/particle",
             "pack.dir.lang" to "lang",
         )) {
-            val found = listResources.invoke(manager, dir, selector) as Map<*, *>
+            val found = manager.listResources(dir, selector)
             // our own files only: the mod namespace, or our marker name inside the minecraft namespace.
             // The minecraft-namespace `oml_test.png` is a name vanilla does not have, so it exercises a
             // real override without risking the game's own assets; `sounds/oml_test.ogg` is an

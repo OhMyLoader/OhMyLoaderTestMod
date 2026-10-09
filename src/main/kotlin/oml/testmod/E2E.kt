@@ -1,8 +1,9 @@
-package org.ohmyloader.testmod
+package oml.testmod
 
-import org.ohmyloader.api.event.Events
-import org.ohmyloader.testmod.E2E.gameLoader
-import org.ohmyloader.testmod.E2E.quitClient
+import org.ohmyloader.api26_3.OMLGame
+import org.ohmyloader.api26_3.currentScreen
+import org.ohmyloader.api26_3.event.Events
+import oml.testmod.E2E.quitClient
 import java.io.FileDescriptor
 import java.io.FileOutputStream
 import java.io.PrintStream
@@ -152,18 +153,13 @@ object E2E {
     /**
      * Where the client sits, sampled every 600 ticks: a join still loading and a join that never
      * started are otherwise indistinguishable, the tick count alone growing the same way for both.
-     * Both members are public on 26.3 (`Minecraft.level`, `Gui.screen()`), reached through
-     * [gameLoader] per the parent-loader rule; any failure degrades to an "unavailable" line.
+     * Any failure degrades to an "unavailable" line.
      */
     private fun printClientState() {
         runCatching {
-            val minecraft =
-                gameLoader().loadClass("net.minecraft.client.Minecraft").getMethod("getInstance").invoke(null)
-            val mcClass = minecraft.javaClass
-            val gui = mcClass.getField("gui").get(minecraft)
-            val screen = gui.javaClass.getMethod("screen").invoke(gui)
-            val world = mcClass.getField("level").get(minecraft)
-            println("$PREFIX client-state ticks=$ticksSeen screen=${screen?.javaClass?.simpleName ?: "null"} world=${if (world != null) "loaded" else "none"}")
+            val client = OMLGame.client ?: error("no client instance")
+            val screen = client.currentScreen
+            println("$PREFIX client-state ticks=$ticksSeen screen=${screen?.javaClass?.simpleName ?: "null"} world=${if (client.level != null) "loaded" else "none"}")
         }.onFailure {
             println("$PREFIX client-state ticks=$ticksSeen unavailable (${it.javaClass.simpleName}: ${it.message})")
         }
@@ -206,9 +202,8 @@ object E2E {
      */
     private fun quitClient() {
         val graceful = runCatching {
-            val minecraft = gameLoader().loadClass("net.minecraft.client.Minecraft")
-                .getMethod("getInstance").invoke(null)
-            minecraft.javaClass.getMethod("stop").invoke(minecraft)
+            val minecraft = OMLGame.client ?: error("no client instance in this process")
+            minecraft.stop()
         }
         graceful.onFailure {
             println("$PREFIX graceful quit unavailable (${it.javaClass.name}: ${it.message}); halting after the verdict")
@@ -217,18 +212,6 @@ object E2E {
         }
     }
 
-    /**
-     * The game loader, asked of OMLCore reflectively (this mod compiles against oml-api only). The
-     * game's libraries sit on it and not on this class's loader, which carries the game *jar* alone —
-     * a plain `Class.forName("net.minecraft.client.Minecraft")` fails there with
-     * `NoClassDefFoundError: com/mojang/brigadier/Message`.
-     */
-    private fun gameLoader(): ClassLoader =
-        Class.forName("org.ohmyloader.core.OMLCore").getMethod("gameClassLoader").invoke(null) as ClassLoader
-
-    /** The side is asked through OMLCore: the mod compiles against oml-api only, so it is reflective. */
-    private fun isServerSide(): Boolean =
-        runCatching {
-            Class.forName("org.ohmyloader.core.OMLCore").getMethod("isServerSide").invoke(null) as Boolean
-        }.getOrElse { false }
+    /** A dedicated server never boots a client, so the game's own client instance is the side test. */
+    private fun isServerSide(): Boolean = OMLGame.client == null
 }

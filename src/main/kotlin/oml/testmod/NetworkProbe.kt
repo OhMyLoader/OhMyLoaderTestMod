@@ -1,4 +1,4 @@
-package org.ohmyloader.testmod
+package oml.testmod
 
 import org.ohmyloader.api.network.*
 import kotlin.random.Random
