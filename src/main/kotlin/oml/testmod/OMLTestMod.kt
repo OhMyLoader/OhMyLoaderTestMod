@@ -103,7 +103,7 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider, OM
                 // reloaded during boot, and weather, clocks, game rules and particles belong to the level.
                 "event.level_tick", "content.damage_type", "api.world_weather",
                 "api.world_clock", "api.clock_markers", "api.clock_rate_and_pause",
-                "api.server_game_rules", "api.world_particles_arguments",
+                "api.server_game_rules", "api.world_particles_arguments", "api.entity_equipment",
             )
         } else {
             // Deliberately not expected here, because a session that stops at the main menu does not
@@ -147,9 +147,10 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider, OM
                     // In singleplayer these are the two-level case: the integrated level and the rendered
                     // one each report their own tick, and the mod's damage type is loaded either way.
                     "event.level_tick", "content.damage_type",
-                    "api.world_weather", "api.server_game_rules", "api.world_particles_arguments",
+                    "api.world_weather", "api.server_game_rules", "api.world_particles_arguments", "api.entity_equipment",
                     "api.world_clock", "api.clock_markers", "api.clock_rate_and_pause",
                     "api.clock_client_sync", "api.world_container", "api.player_opened_menu",
+                    "api.player_equipment",
                     "scheduler.server_task", "scheduler.client_task",
                     "api.server_broadcast", "api.player_system_message",
                     "event.block_break", "event.entity_attack", "event.entity_interact", "event.living_hurt",

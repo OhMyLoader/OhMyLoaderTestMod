@@ -18,6 +18,8 @@ import net.minecraft.world.phys.Vec3
 import java.util.Optional
 import net.minecraft.world.Container
 import net.minecraft.world.InteractionHand
+import net.minecraft.world.entity.EquipmentSlot
+import net.minecraft.world.entity.player.Inventory
 import net.minecraft.world.entity.Entity
 import net.minecraft.world.entity.LivingEntity
 import net.minecraft.world.item.ItemStack
@@ -79,6 +81,16 @@ object WorldProbe {
     /** The modifier the attribute probe adds and takes off again. */
     private const val MODIFIER_ID = "oml_testmod:probe"
     private const val MODIFIER_AMOUNT = 4.0
+
+    /** Item ids the equipment probes wear and take off: boots fill a feet slot, a chestplate a player's. */
+    private const val LEATHER_BOOTS = "minecraft:leather_boots"
+    private const val IRON_CHESTPLATE = "minecraft:iron_chestplate"
+
+    /** An item the game equips in no armour slot, driven as the refusal. */
+    private const val DIAMOND = "minecraft:diamond"
+
+    /** A slot name the game does not have. */
+    private const val NO_SUCH_SLOT = "saddlebow"
 
     /** A registered damage type the hurt probe deals through the game's own path. */
     private const val CACTUS_DAMAGE = "minecraft:cactus"
@@ -439,6 +451,7 @@ object WorldProbe {
         if (!dedicated) step("api.clock_client_sync") { probeClockSync() }
         step("api.server_game_rules") { probeGameRules() }
         step("api.world_particles_arguments") { probeArgumentParticles() }
+        step("api.entity_equipment") { probeEntityEquipment() }
         val player = OMLGame.server?.onlinePlayers?.firstOrNull() ?: return@guard
         step("api.player_handle") { probePlayerHandle(player) }
         step("api.player_inventory") { probeInventory(player) }
@@ -468,6 +481,7 @@ object WorldProbe {
         step("api.entity_removal") { probeRemoval(player) }
         step("api.block_state") { probeBlockState(player) }
         step("api.world_container") { probeContainer(player) }
+        step("api.player_equipment") { probePlayerEquipment(player) }
         step("api.player_opened_menu") { probeOpenedMenu(player) }
         step("api.world_particles") { probeParticles(player) }
         // Last: it kills the player and brings them back, so nothing may depend on the handle afterwards.
@@ -1015,6 +1029,83 @@ object WorldProbe {
             "api.world_is_loaded",
             world.isLoaded(ground) && world.isLoaded(feet) && !farLoaded,
             "feet $feet and its ground $ground report loaded, $far reports loaded=$farLoaded",
+        )
+        return true
+    }
+
+    /**
+     * Worn items addressed by the game's own slot name and by item id. The refusals are the point — an item the
+     * game equips in no armour slot, a slot name it never uses, an unregistered id — and each one is compared
+     * with the game's own `isEquippableInSlot`, so the verdict stays the game's rule rather than OML's. A cow in
+     * open air is the subject, so this needs no player, and nothing is destroyed: the unequip hands the worn
+     * stack back to the probe.
+     */
+    private fun probeEntityEquipment(): Boolean {
+        val server = OMLGame.server ?: return false
+        val world = server.levelById(OVERWORLD) ?: return false
+        val boots = OMLRegistries.item(LEATHER_BOOTS)?.let(::ItemStack) ?: return false
+        val gem = OMLRegistries.item(DIAMOND)?.let(::ItemStack) ?: return false
+        val cow = world.spawnLivingEntity(COW, 0.5, 200.0, 0.5) ?: return false
+        val wrote = cow.equip("feet", boots.copy())
+        val readsBack = cow.itemIn("feet")?.itemId == LEATHER_BOOTS
+        val refused = cow.equip("feet", gem.copy())
+        val stillWorn = cow.itemIn("feet")?.itemId == LEATHER_BOOTS
+        val unknownSlot = cow.equip(NO_SUCH_SLOT, boots.copy())
+        val unknownId = cow.equip("feet", "oml_testmod:absent")
+        val taken = cow.unequip("feet")
+        val cleared = cow.itemIn("feet")?.isEmpty == true
+        val flags = listOf(
+            "the write was taken" to (wrote != null && wrote.isEmpty),
+            "the game reads the worn item back" to readsBack,
+            "the game refuses what it equips nowhere" to
+                ((refused == null) && !cow.isEquippableInSlot(gem, EquipmentSlot.FEET)),
+            "a refusal leaves the worn item alone" to stillWorn,
+            "an unknown slot name is refused" to (unknownSlot == null),
+            "an unregistered id is refused" to (unknownId == null),
+            "unequipping hands back what was worn" to (taken?.itemId == LEATHER_BOOTS),
+            "the slot reads clear afterwards" to cleared,
+        )
+        E2E.check(
+            "api.entity_equipment",
+            flags.all { it.second },
+            "${flags.filterNot { it.second }.map { it.first }} failed of ${flags.size}",
+        )
+        cow.discard()
+        return true
+    }
+
+    /**
+     * The player's own worn stack, read a second time out of the player container at the index the game maps the
+     * slot name to — that pair of readings is what shows the entity's equipment and the container are one
+     * storage instead of a copy OML keeps. Whatever the probe puts on, it puts back.
+     */
+    private fun probePlayerEquipment(player: ServerPlayer): Boolean {
+        val inventory = player.inventory
+        val chestSlot = inventory.indexOf("chest") ?: return false
+        val offhandSlot = inventory.indexOf("offhand") ?: return false
+        val before = player.itemIn("chest") ?: return false
+        val displaced = player.equip("chest", IRON_CHESTPLATE) ?: return false
+        val wornInContainer = inventory.getItem(chestSlot).itemId == IRON_CHESTPLATE
+        val putBack = player.equip("chest", displaced)
+        val restored = player.itemIn("chest")?.itemId == before.itemId
+        val stone = OMLRegistries.item(STONE)?.let(::ItemStack) ?: return false
+        val offDisplaced = player.equip("offhand", stone.copy())
+        val agreesWithTheGame =
+            (offDisplaced != null) == player.isEquippableInSlot(stone, EquipmentSlot.OFFHAND)
+        offDisplaced?.let { player.equip("offhand", it) }
+        val flags = listOf(
+            "the armour index is the game's own" to (chestSlot in 36..39),
+            "the offhand index is the game's constant" to (offhandSlot == Inventory.SLOT_OFFHAND),
+            "the write was taken" to (displaced != null && displaced.isEmpty),
+            "the container shows what the entity wears" to wornInContainer,
+            "the original piece goes back on" to (putBack != null && restored),
+            "the offhand verdict equals the game's rule" to agreesWithTheGame,
+        )
+        E2E.check(
+            "api.player_equipment",
+            flags.all { it.second },
+            "${flags.filterNot { it.second }.map { it.first }} failed of ${flags.size}; chest=$chestSlot " +
+                "offhand=$offhandSlot worn=${inventory.getItem(chestSlot).itemId}",
         )
         return true
     }
