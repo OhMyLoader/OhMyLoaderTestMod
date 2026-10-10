@@ -10,6 +10,7 @@ import net.minecraft.server.level.ServerLevel
 import net.minecraft.server.level.ServerPlayer
 import net.minecraft.core.Direction
 import net.minecraft.tags.TagKey
+import org.ohmyloader.api.content.OMLBlockDataCarrier
 import net.minecraft.tags.DamageTypeTags
 import net.minecraft.world.InteractionResult
 import net.minecraft.world.MenuProvider
@@ -168,6 +169,9 @@ object WorldProbe {
     /** A block with a block entity, declared by the techmod in the same run: `techmod:press`. */
     private const val PRESS_BLOCK = "techmod:press"
     private val PRESS_POSITION = BlockPos(120, 40, 120)
+
+    /** Its own column, stood in two declared dimensions at once so the same coordinates carry two stores. */
+    private val PRESS_DATA_POSITION = BlockPos(168, 40, 168)
 
     /** A node nothing in vanilla grants; the gated command and the grant probe both address it. */
     private const val MOD_NODE = "oml_testmod:build"
@@ -556,6 +560,7 @@ object WorldProbe {
         step("api.permission_nodes") { probePermissionNodes() }
         step("api.world_spawn_anchor") { probeWorldSpawn() }
         step("api.block_entity_read") { probeBlockEntityRead() }
+        step("api.block_data_addressing") { probeBlockDataAddressing() }
         step("api.dimension_teleport") { probeDimensionTeleport() }
         // The client's copy of the clock only exists in a client process, so the dedicated run must not
         // wait for a step it can never satisfy.
@@ -1201,6 +1206,10 @@ object WorldProbe {
     private var teleportTick = -1
     private var pressWaitTick = -1
     private var pressWriteTick = -1
+    private var pressDataPhase = 0
+    private var pressDataTick = -1
+    private var pressDataProgressBefore = -1
+    private var pressDataIdentity = false
     private var teleportCow: LivingEntity? = null
     private var teleportMoved: Entity? = null
 
@@ -1348,6 +1357,105 @@ object WorldProbe {
                 "idNow=${level.blockIdAt(PRESS_POSITION)}",
         )
         level.releaseForceLoadedChunk(PRESS_POSITION)
+        return true
+    }
+
+    /**
+     * A declared block entity's persistent store, reached from outside its own ticker, in two dimensions at the
+     * same coordinates. Isolation is the point: a store addressed by position alone would answer for both
+     * dimensions with one value, while the game holds one block entity per position **per level**. The progress
+     * leg shows the address is the store the game ticks rather than a copy of it — the techmod's press counts a
+     * cycle in `progress` every tick — and the identity leg shows the ticker's view and this one are the same
+     * object. Three refusals close the contract: a position whose block has no block entity, an unloaded
+     * position, and a dimension this server never loaded.
+     */
+    private fun probeBlockDataAddressing(): Boolean {
+        val server = OMLGame.server ?: return false
+        val a = server.levelById(MOD_DIMENSION) ?: return false
+        val b = server.levelById(MOD_DIMENSION_B) ?: return false
+        if (pressDataPhase == 0) {
+            if (!(chunkReady(server, MOD_DIMENSION, PRESS_DATA_POSITION) &&
+                    chunkReady(server, MOD_DIMENSION_B, PRESS_DATA_POSITION))) {
+                if (pressDataTick < 0) pressDataTick = server.tickCount
+                if (server.tickCount - pressDataTick < CHUNK_TICK_WAIT_LIMIT) return false
+                E2E.check(
+                    "api.block_data_addressing", false,
+                    "neither dimension brought ${PRESS_DATA_POSITION}'s column to ticking in " +
+                        "$CHUNK_TICK_WAIT_LIMIT ticks (a=${a.isLoaded(PRESS_DATA_POSITION)} " +
+                        "b=${b.isLoaded(PRESS_DATA_POSITION)})",
+                )
+                pressDataPhase = 3
+                return true
+            }
+            // One tick after the promotion before anything is written: the game is still finishing the chunk.
+            pressDataPhase = 1
+            return false
+        }
+        if (pressDataPhase == 1) {
+            val placedA = a.setBlockAt(PRESS_DATA_POSITION, PRESS_BLOCK)
+            val placedB = b.setBlockAt(PRESS_DATA_POSITION, PRESS_BLOCK)
+            val dataA = server.blockDataAt(MOD_DIMENSION, PRESS_DATA_POSITION)
+            val dataB = server.blockDataAt(MOD_DIMENSION_B, PRESS_DATA_POSITION)
+            if (!(placedA && placedB && dataA != null && dataB != null)) {
+                E2E.check(
+                    "api.block_data_addressing", false,
+                    "no store to address (placed a=$placedA/${a.blockIdAt(PRESS_DATA_POSITION)} " +
+                        "b=$placedB/${b.blockIdAt(PRESS_DATA_POSITION)}, " +
+                        "data a=${dataA != null} b=${dataB != null})",
+                )
+                pressDataPhase = 3
+                return true
+            }
+            dataA.putInt("side", 1)
+            dataB.putInt("side", 2)
+            dataA.putString("only_in_a", "a")
+            pressDataIdentity = (a.blockEntityAt(PRESS_DATA_POSITION) as? OMLBlockDataCarrier)
+                ?.blockData === dataA
+            pressDataProgressBefore = dataA.getInt("progress")
+            pressDataPhase = 2
+            return false
+        }
+        val dataA = server.blockDataAt(MOD_DIMENSION, PRESS_DATA_POSITION)
+        val dataB = server.blockDataAt(MOD_DIMENSION_B, PRESS_DATA_POSITION)
+        val progressAfter = dataA?.getInt("progress") ?: -1
+        val sideA = dataA?.getInt("side", 0)
+        val sideB = dataB?.getInt("side", 0)
+        val markerInB = dataB?.getString("only_in_a")
+        // The removal comes after the reads above: dropping a key is also the way to lose the evidence a
+        // second leg is asking about.
+        val removedKey = dataA?.remove("side")
+        val removedAgain = dataA?.remove("side")
+        val cleared = a.setBlockAt(PRESS_DATA_POSITION, AIR) && b.setBlockAt(PRESS_DATA_POSITION, AIR)
+        val flags = listOf(
+            "both dimensions hold a store for the same coordinates" to (dataA != null && dataB != null),
+            "each keeps its own value" to (sideA == 1 && sideB == 2),
+            "one side's key is not the other's" to (markerInB == null),
+            "the address reaches the store the ticker writes" to (progressAfter > pressDataProgressBefore),
+            "and it is the same object the tick handler is handed" to pressDataIdentity,
+            "a key can be dropped, and dropping it twice says so" to (
+                removedKey == true && removedAgain == false && dataA != null && !dataA.hasKey("side")
+                ),
+            "a block with no block entity has no store" to (
+                server.blockDataAt(MOD_DIMENSION, PRESS_DATA_POSITION.offset(8, 0, 0)) == null
+                ),
+            "an unloaded position answers null" to (
+                server.blockDataAt(MOD_DIMENSION, BlockPos(900_000, 40, 900_000)) == null
+                ),
+            "a dimension this server never loaded answers null" to (
+                server.blockDataAt(ABSENT_DIMENSION, PRESS_DATA_POSITION) == null
+                ),
+            "the column is left as it was found" to cleared,
+        )
+        E2E.check(
+            "api.block_data_addressing",
+            flags.all { it.second },
+            "${flags.filterNot { it.second }.map { it.first }} failed of ${flags.size}; " +
+                "progress $pressDataProgressBefore -> $progressAfter identity=$pressDataIdentity " +
+                "sideA=$sideA sideB=$sideB markerInB=$markerInB " +
+                "removed=$removedKey/$removedAgain cleared=$cleared",
+        )
+        a.releaseForceLoadedChunk(PRESS_DATA_POSITION)
+        b.releaseForceLoadedChunk(PRESS_DATA_POSITION)
         return true
     }
 

@@ -172,7 +172,7 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider, OM
                 "event.level_tick", "content.damage_type", "content.custom_tag", "api.world_weather",
                 "api.world_clock", "api.clock_markers", "api.clock_rate_and_pause",
                 "content.custom_clock", "content.custom_dimension", "api.chunk_lifecycle",
-                "api.permission_nodes", "api.block_entity_read", "api.dimension_teleport",
+                "api.permission_nodes", "api.block_entity_read", "api.block_data_addressing", "api.dimension_teleport",
                 "api.world_spawn_anchor",
                 "api.server_game_rules", "api.world_particles_arguments", "api.entity_equipment",
             )
@@ -221,7 +221,7 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider, OM
                     "api.world_weather", "api.server_game_rules", "api.world_particles_arguments", "api.entity_equipment",
                     "api.world_clock", "api.clock_markers", "api.clock_rate_and_pause",
                     "content.custom_clock", "content.custom_dimension", "api.chunk_lifecycle",
-                    "api.permission_nodes", "api.permission_grant", "api.block_entity_read",
+                    "api.permission_nodes", "api.permission_grant", "api.block_entity_read", "api.block_data_addressing",
                     "api.world_spawn_anchor", "api.player_respawn_anchor",
                     "api.dimension_teleport", "api.player_dimension_teleport",
                     "api.clock_client_sync", "api.world_container", "api.player_opened_menu",
