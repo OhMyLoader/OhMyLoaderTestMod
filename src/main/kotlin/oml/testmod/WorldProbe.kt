@@ -144,6 +144,14 @@ object WorldProbe {
     /** The second declared dimension, whose type names no clock — the pair the teleport probe moves between. */
     private const val MOD_DIMENSION_B = "oml_testmod:test_dim_b"
     private const val ABSENT_DIMENSION_B = "oml_testmod:no_such_dim"
+    /** Where the anchor probes point: a column of the mod's own dimension, with a bedrock floor under it. */
+    private val ANCHOR_POSITION = BlockPos(72, 41, 72)
+    private const val ANCHOR_YAW = 90f
+
+    /** A border this tight excludes [OUTSIDE_BORDER_POSITION] and ANCHOR_POSITION's column alike. */
+    private const val TIGHT_BORDER_SIZE = 50.0
+    private val OUTSIDE_BORDER_POSITION = BlockPos(200, 41, 200)
+
     /** Its own column, so the ticket probes below never release a chunk another probe is holding. */
     private val TELEPORT_POSITION = BlockPos(72, 40, 72)
     private const val TELEPORT_X = 72.5
@@ -533,6 +541,7 @@ object WorldProbe {
         step("content.custom_dimension") { probeCustomDimension() }
         step("api.chunk_lifecycle") { probeChunkLifecycle() }
         step("api.permission_nodes") { probePermissionNodes() }
+        step("api.world_spawn_anchor") { probeWorldSpawn() }
         step("api.block_entity_read") { probeBlockEntityRead() }
         step("api.dimension_teleport") { probeDimensionTeleport() }
         // The client's copy of the clock only exists in a client process, so the dedicated run must not
@@ -572,6 +581,7 @@ object WorldProbe {
         step("api.world_container") { probeContainer(player) }
         step("api.player_equipment") { probePlayerEquipment(player) }
         step("api.permission_grant") { probePermissionGrant(player) }
+        step("api.player_respawn_anchor") { probePlayerRespawnAnchor(player) }
         step("api.player_dimension_teleport") { probePlayerDimensionTeleport(player) }
         step("api.player_opened_menu") { probeOpenedMenu(player) }
         step("api.world_particles") { probeParticles(player) }
@@ -976,6 +986,125 @@ object WorldProbe {
     }
 
     /**
+     * The world's spawn, moved and read back through the game's own record. The third flag is the fact this
+     * probe exists to pin: 26.3 keeps **one** spawn record for the whole server, so a level's `respawnData` is
+     * the same object whichever dimension is asked — which is why OML puts the write on the server rather than
+     * pretending a dimension owns one.
+     */
+    /**
+     * The world's own spawn record, measured through the game. Three constraints decide what the answers mean:
+     * `ServerLevel`'s read and write both forward to `MinecraftServer`, so one record serves every level; the
+     * record's **own** dimension is what the game resolves at respawn time (that is how `/setworldspawn` works
+     * too), so re-pointing it is a real move rather than a field that is stored and ignored; and what comes back
+     * is the request moved inside that dimension's world border, which is where a respawn actually lands. The
+     * restore at the end is not decoration — the record is saved with the world, and one left pointing into
+     * another dimension breaks every probe that respawns a player.
+     */
+    private fun probeWorldSpawn(): Boolean {
+        val server = OMLGame.server ?: return false
+        val b = server.levelById(MOD_DIMENSION_B) ?: return false
+        val before = server.worldSpawn
+        val refusedDimension = server.setWorldSpawn(ABSENT_DIMENSION, ANCHOR_POSITION)
+        val keptOnRefusal = server.worldSpawn == before
+        val wrote = server.setWorldSpawn(OVERWORLD, ANCHOR_POSITION, ANCHOR_YAW)
+        val held = server.worldSpawn
+        val fromLevelB = b.respawnData
+        val repointed = server.setWorldSpawn(MOD_DIMENSION_B, ANCHOR_POSITION, ANCHOR_YAW)
+        val nowNamingB = server.worldSpawn
+        val border = b.worldBorder
+        val borderWas = border.size
+        // A border this tight puts ANCHOR_POSITION's column outside it, so the game keeps the request but hands
+        // back its own centre — and the centre is where a respawn actually lands.
+        border.setSize(TIGHT_BORDER_SIZE)
+        val refusedOutsideBorder = server.setWorldSpawn(MOD_DIMENSION_B, OUTSIDE_BORDER_POSITION, ANCHOR_YAW)
+        val movedInside = server.worldSpawn
+        border.setSize(borderWas)
+        val restored = server.setWorldSpawn(
+            before.globalPos().dimension().identifier().toString(),
+            before.pos(),
+            before.yaw(),
+            before.pitch(),
+        )
+        val flags = listOf(
+            "an unknown dimension is refused" to !refusedDimension,
+            "the refusal left the record alone" to keptOnRefusal,
+            "the write reads back through the game's own record" to (
+                wrote && held.pos() == ANCHOR_POSITION && held.yaw() == ANCHOR_YAW
+                ),
+            "the record names the world it was pointed at" to (
+                held.globalPos().dimension().identifier().toString() == OVERWORLD
+                ),
+            "every level reads the one record" to (fromLevelB == held),
+            "the record can be pointed at another dimension" to (
+                repointed && nowNamingB.pos() == ANCHOR_POSITION &&
+                    nowNamingB.globalPos().dimension().identifier().toString() == MOD_DIMENSION_B
+                ),
+            "a position outside that dimension's border reads back inside it" to (
+                !refusedOutsideBorder && movedInside.pos().x == 0 && movedInside.pos().z == 0 &&
+                    movedInside.globalPos().dimension().identifier().toString() == MOD_DIMENSION_B
+                ),
+            "the record the world started with is put back" to restored,
+        )
+        E2E.check(
+            "api.world_spawn_anchor",
+            flags.all { it.second },
+            "${flags.filterNot { it.second }.map { it.first }} failed of ${flags.size}; wrote=$wrote " +
+                "held=${held.globalPos()} yaw=${held.yaw()} fromAnotherLevel=${fromLevelB.globalPos()} " +
+                "refusedDimension=$refusedDimension repointed=$repointed now=${nowNamingB.globalPos()} " +
+                "refusedOutside=$refusedOutsideBorder insideBorder=${movedInside.globalPos()} " +
+                "restored=$restored was=$before",
+        )
+        return true
+    }
+
+    /**
+     * A player's own respawn anchor. The refusal is the point of the first leg: the game will store any
+     * dimension key it is handed, so a typo would only surface when the player dies — OML has to turn that
+     * down at the write, with the anchor left exactly as it was. The read-back then goes through the game's
+     * own `getRespawnConfig()`, including the `forced` mark that tells the game to use the position as given
+     * instead of re-checking for a bed.
+     */
+    private fun probePlayerRespawnAnchor(player: ServerPlayer): Boolean {
+        val server = OMLGame.server ?: return false
+        val before = player.respawnAnchor
+        val refused = player.setRespawnAnchor(ABSENT_DIMENSION, ANCHOR_POSITION)
+        val kept = player.respawnAnchor == before
+        val set = player.setRespawnAnchor(MOD_DIMENSION, ANCHOR_POSITION, ANCHOR_YAW, announce = false)
+        val config = player.respawnConfig
+        val cleared = player.clearRespawnAnchor()
+        val restored = before == null ||
+            player.setRespawnAnchor(
+                before.globalPos().dimension().identifier().toString(),
+                before.pos(),
+                before.yaw(),
+                before.pitch(),
+                announce = false,
+            )
+        val flags = listOf(
+            "an unknown dimension is refused" to !refused,
+            "the refusal left the anchor alone" to kept,
+            "the game holds the anchor it was given" to (
+                set && config != null && config.respawnData().pos() == ANCHOR_POSITION &&
+                    config.respawnData().yaw() == ANCHOR_YAW
+                ),
+            "the anchor names its dimension" to (
+                config?.respawnData()?.globalPos()?.dimension()?.identifier()?.toString() == MOD_DIMENSION
+                ),
+            "an explicit anchor is used as given" to (config != null && config.forced()),
+            "clearing leaves the game with none" to (cleared && player.respawnConfig == null),
+            "the player's own anchor is restored" to restored,
+        )
+        E2E.check(
+            "api.player_respawn_anchor",
+            flags.all { it.second },
+            "${flags.filterNot { it.second }.map { it.first }} failed of ${flags.size}; before=$before " +
+                "refused=$refused set=$set config=${config?.respawnData()?.globalPos()} forced=" +
+                "${config?.forced()} cleared=$cleared now=${player.respawnConfig}",
+        )
+        return true
+    }
+
+    /**
      * The node-addressed reads, measured against the game's own constants and its own two extreme sets. The
      * two claims worth pinning are that an id reaches the very object the game gates chat on, and that a
      * command level is not an id — the game spells `Permissions.COMMANDS_GAMEMASTER` as
@@ -1217,22 +1346,31 @@ object WorldProbe {
     private fun probePlayerDimensionTeleport(player: ServerPlayer): Boolean {
         val server = OMLGame.server ?: return false
         if (!chunkReady(server, MOD_DIMENSION, TELEPORT_POSITION)) return false
+        val from = player.blockPosition()
         val there = player.teleportToLevel(MOD_DIMENSION, TELEPORT_X, TELEPORT_Y, TELEPORT_Z)
         val arrived = there?.level() === server.levelById(MOD_DIMENSION)
         val clock = there?.level()?.clock
-        val back = there?.teleportToLevel(OVERWORLD, TELEPORT_X, TELEPORT_Y, TELEPORT_Z)
+        // Back to the column they came from, not to the probe's own coordinates: dropping a player inside
+        // terrain would settle them somewhere else and the next probe, or the next run, reads that as a
+        // teleport that did not happen.
+        val back = there?.teleportToLevel(OVERWORLD, from.x + 0.5, from.y + 1.0, from.z + 0.5)
         val flags = listOf(
             "the player arrived in the declared dimension" to (there != null && arrived),
             "the game kept the same player instance" to (there === player),
             "the dimension's clock is the mod's own" to (clock?.getRegisteredName() == MOD_CLOCK),
-            "the player is back in the overworld" to (back?.dimensionId == OVERWORLD),
+            // The game settles a player out of the block they land inside, so the column is the promise and
+            // the exact block height is the game's own answer.
+            "the player is back in the column they came from" to (
+                back?.dimensionId == OVERWORLD && back.blockPosition().x == from.x &&
+                    back.blockPosition().z == from.z
+                ),
         )
         E2E.check(
             "api.player_dimension_teleport",
             flags.all { it.second },
             "${flags.filterNot { it.second }.map { it.first }} failed of ${flags.size}; there=" +
                 "${there?.dimensionId} same=${there === player} clock=${clock?.getRegisteredName()} " +
-                "back=${back?.dimensionId}",
+                "back=${back?.dimensionId} from=$from now=${back?.blockPosition()}",
         )
         server.levelById(MOD_DIMENSION)?.releaseForceLoadedChunk(TELEPORT_POSITION)
         return true
@@ -1831,10 +1969,21 @@ object WorldProbe {
         val backHome = player.blockPosition()
         val refused = player.teleport(home.x + 0.5, home.y + 2.1, home.z + 0.5, "oml_testmod:absent")
         val stillHome = player.blockPosition()
+        val flags = listOf(
+            "the plain move is accepted" to moved,
+            "the game put the player on the named block" to (afterMove == target),
+            "naming the dimension they are in is accepted" to explicit,
+            "that move lands where it was asked" to (backHome == home),
+            "an unregistered dimension is refused" to !refused,
+            "the refusal left the player where they were" to (stillHome == home),
+        )
         E2E.check(
             "api.player_teleport",
-            moved && afterMove == target && explicit && backHome == home && !refused && stillHome == home,
-            "$home -> $afterMove (wanted $target) -> $backHome, unregistered dimension returned $refused at $stillHome",
+            flags.all { it.second },
+            "${flags.filterNot { it.second }.map { it.first }} failed of ${flags.size}; " +
+                "${player.dimensionId} $home -> $afterMove (wanted $target) -> $backHome, " +
+                "unregistered dimension returned $refused at $stillHome; targetLoaded=" +
+                "${player.level().isLoaded(target)} blockUnderTarget=${player.level().blockIdAt(target)}",
         )
         return true
     }
