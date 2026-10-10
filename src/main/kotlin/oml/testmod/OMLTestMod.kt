@@ -44,6 +44,12 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider, OM
         commands.register("oml_e2e_hello") {
             executes { E2E.hit("command.executed") }
         }
+        // Permission-node gate: nothing in vanilla grants this id, so the command is out of reach until the
+        // probe grants the node to the player — and out of reach again once it revokes it.
+        commands.register("oml_e2e_gated") {
+            permissionNode = "oml_testmod:build"
+            executes { WorldProbe.gatedRuns++ }
+        }
     }
 
     override fun declareKeyBindings(keyBindings: OMLKeyBindingRegistry) {
@@ -135,6 +141,7 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider, OM
                 "event.level_tick", "content.damage_type", "api.world_weather",
                 "api.world_clock", "api.clock_markers", "api.clock_rate_and_pause",
                 "content.custom_clock", "content.custom_dimension", "api.chunk_lifecycle",
+                "api.permission_nodes",
                 "api.server_game_rules", "api.world_particles_arguments", "api.entity_equipment",
             )
         } else {
@@ -182,6 +189,7 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider, OM
                     "api.world_weather", "api.server_game_rules", "api.world_particles_arguments", "api.entity_equipment",
                     "api.world_clock", "api.clock_markers", "api.clock_rate_and_pause",
                     "content.custom_clock", "content.custom_dimension", "api.chunk_lifecycle",
+                    "api.permission_nodes", "api.permission_grant",
                     "api.clock_client_sync", "api.world_container", "api.player_opened_menu",
                     "api.player_equipment",
                     "scheduler.server_task", "scheduler.client_task",

@@ -14,6 +14,8 @@ import net.minecraft.world.InteractionResult
 import net.minecraft.world.MenuProvider
 import net.minecraft.world.damagesource.DamageSource
 import net.minecraft.server.permissions.LevelBasedPermissionSet
+import net.minecraft.server.permissions.PermissionSet
+import net.minecraft.server.permissions.Permissions
 import net.minecraft.world.phys.Vec3
 import java.util.Optional
 import net.minecraft.world.Container
@@ -138,6 +140,11 @@ object WorldProbe {
     private const val MOD_MARKER_LOW = "oml_testmod:low_tide"
     private const val MOD_MARKER_HIGH = "oml_testmod:high_tide"
     private const val MOD_MARKER_HIGH_TICKS = 12000
+
+    /** A node nothing in vanilla grants; the gated command and the grant probe both address it. */
+    private const val MOD_NODE = "oml_testmod:build"
+    private const val CHAT_NODE = "minecraft:chat/send_messages"
+
 
     /**
      * The dimension type and dimension this mod declares. 26.3 builds a level for every `dimension` entry when
@@ -341,6 +348,9 @@ object WorldProbe {
     @Volatile
     private var driveItemUse = false
 
+    /** How many times the node-gated command's handler actually ran. */
+    var gatedRuns = 0
+
     private val reported = HashSet<String>()
     private val waited = HashMap<String, Int>()
 
@@ -498,6 +508,7 @@ object WorldProbe {
         step("content.custom_clock") { probeCustomClock() }
         step("content.custom_dimension") { probeCustomDimension() }
         step("api.chunk_lifecycle") { probeChunkLifecycle() }
+        step("api.permission_nodes") { probePermissionNodes() }
         // The client's copy of the clock only exists in a client process, so the dedicated run must not
         // wait for a step it can never satisfy.
         if (!dedicated) step("api.clock_client_sync") { probeClockSync() }
@@ -534,6 +545,7 @@ object WorldProbe {
         step("api.block_state") { probeBlockState(player) }
         step("api.world_container") { probeContainer(player) }
         step("api.player_equipment") { probePlayerEquipment(player) }
+        step("api.permission_grant") { probePermissionGrant(player) }
         step("api.player_opened_menu") { probeOpenedMenu(player) }
         step("api.world_particles") { probeParticles(player) }
         // Last: it kills the player and brings them back, so nothing may depend on the handle afterwards.
@@ -932,6 +944,86 @@ object WorldProbe {
             "${flags.filterNot { it.second }.map { it.first }} failed of ${flags.size}; clock at " +
                 "${instance.totalTicks()} advanced $advanced in $elapsed ticks, offered markers=" +
                 "${manager.markersOf(clock).sorted()}, timelines=${server.timelineIds.sorted()}",
+        )
+        return true
+    }
+
+    /**
+     * The node-addressed reads, measured against the game's own constants and its own two extreme sets. The
+     * two claims worth pinning are that an id reaches the very object the game gates chat on, and that a
+     * command level is not an id — the game spells `Permissions.COMMANDS_GAMEMASTER` as
+     * `HasCommandLevel(GAMEMASTERS)`, so it has no id to report and OML says so instead of inventing one.
+     */
+    private fun probePermissionNodes(): Boolean {
+        val all = PermissionSet.ALL_PERMISSIONS
+        val none = PermissionSet.NO_PERMISSIONS
+        val flags = listOf(
+            "the game's chat node is addressable by id" to (permissionNode(CHAT_NODE) == Permissions.CHAT_SEND_MESSAGES),
+            "the whole table answers it" to all.hasNode(CHAT_NODE),
+            "no table holds it" to !none.hasNode(CHAT_NODE),
+            "a mod node is refused by the empty table" to !none.hasNode(MOD_NODE),
+            "an unparseable id answers false, not an exception" to !all.hasNode("bad id"),
+            "a level reads the way the game reads it" to (
+                all.hasCommandLevel("owners") && !none.hasCommandLevel("owners")
+                ),
+            "an unknown level name is refused" to !all.hasCommandLevel("headmaster"),
+            "a command level is not an id" to (permissionNodeId(Permissions.COMMANDS_GAMEMASTER) == null),
+            "an atom does have one" to (permissionNodeId(Permissions.CHAT_SEND_MESSAGES) == CHAT_NODE),
+        )
+        E2E.check(
+            "api.permission_nodes",
+            flags.all { it.second },
+            "${flags.filterNot { it.second }.map { it.first }} failed of ${flags.size}; " +
+                "all=$all none=$none chatNode=${permissionNode(CHAT_NODE)}",
+        )
+        return true
+    }
+
+    /**
+     * The grant path, which is only meaningful for a player: the game builds a player's set from its op level
+     * and chat state, hands it to OML's hook, and every consumer — the command gate included — then reads the
+     * wrapper. So the probe grants a node nothing in vanilla knows, **asks the game's own
+     * `permissions().hasPermission(...)`** whether it now answers, and dispatches the command that declares
+     * that node as its requirement: refused before, run after, refused again once revoked. `clear` drops the
+     * override so the game's own composition is the whole answer again.
+     */
+    private fun probePermissionGrant(player: ServerPlayer): Boolean {
+        val server = OMLGame.server ?: return false
+        val node = permissionNode(MOD_NODE) ?: return false
+        val baseOurs = player.hasPermissionNode(MOD_NODE)
+        val baseGame = player.permissions().hasPermission(node)
+        val granted = player.grantPermissionNode(MOD_NODE)
+        val grantAnswers = player.permissions().hasPermission(node)
+        val reGranted = player.grantPermissionNode(MOD_NODE)
+        val commands = server.getCommands()
+        gatedRuns = 0
+        commands.performPrefixedCommand(player.createCommandSourceStack(), "oml_e2e_gated")
+        val runsAfterGrant = gatedRuns
+        val revoked = player.revokePermissionNode(MOD_NODE)
+        val revokeAnswers = player.permissions().hasPermission(node)
+        commands.performPrefixedCommand(player.createCommandSourceStack(), "oml_e2e_gated")
+        val runsAfterRevoke = gatedRuns
+        val cleared = player.clearPermissionNodeGrant(MOD_NODE)
+        val overrides = player.permissionNodeOverrides
+        val flags = listOf(
+            "nothing grants a mod node to start with" to (!baseOurs && !baseGame),
+            "granting reports a change" to granted,
+            "the game's own set answers the grant" to grantAnswers,
+            "granting twice reports no change" to !reGranted,
+            "the gated command ran once granted" to (runsAfterGrant == 1),
+            "revoking reports a change" to revoked,
+            "the game's own set stops answering" to !revokeAnswers,
+            "the gated command stayed refused once revoked" to (runsAfterRevoke == 1),
+            "clearing drops the override" to cleared,
+            "no override is left recorded" to overrides.isEmpty(),
+            "the player is back to the game's own answer" to !player.hasPermissionNode(MOD_NODE),
+        )
+        E2E.check(
+            "api.permission_grant",
+            flags.all { it.second },
+            "${flags.filterNot { it.second }.map { it.first }} failed of ${flags.size}; base=$baseOurs " +
+                "grant=$granted revoke=$revoked cleared=$cleared runs after grant/revoke=" +
+                "$runsAfterGrant/$runsAfterRevoke overrides=$overrides level=${player.permissionLevel}",
         )
         return true
     }
