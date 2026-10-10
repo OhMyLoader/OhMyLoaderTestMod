@@ -17,6 +17,7 @@ import net.minecraft.server.permissions.LevelBasedPermissionSet
 import net.minecraft.world.phys.Vec3
 import java.util.Optional
 import net.minecraft.world.Container
+import net.minecraft.world.level.ChunkPos
 import net.minecraft.world.InteractionHand
 import net.minecraft.world.entity.EquipmentSlot
 import net.minecraft.world.entity.player.Inventory
@@ -148,6 +149,15 @@ object WorldProbe {
     private const val ABSENT_DIMENSION = "oml_testmod:absent_dim"
     private const val MOD_DIMENSION_HEIGHT = 128
     private const val MOD_DIMENSION_MIN_Y = 0
+
+    /**
+     * Where the chunk probe works: a position inside one chunk of the mod's own dimension, which no player
+     * ever visits. The flat generator puts one bedrock layer at y=0, so the column above it is air to build in.
+     */
+    private val CHUNK_PROBE_POSITION = BlockPos(8, 64, 8)
+    private const val CHUNK_PROBE_BLOCK = "minecraft:stone"
+    private const val CHUNK_TICK_WAIT_LIMIT = 60
+
 
     /** Outside the game's own `/time rate` window, so OML has to refuse it rather than store it. */
     private const val FAST_RATE = 2f
@@ -334,8 +344,26 @@ object WorldProbe {
     private val reported = HashSet<String>()
     private val waited = HashMap<String, Int>()
 
+    @Volatile
+    private var chunkTickingSeen = false
+
+    @Volatile
+    private var chunkUnloadedSeen = false
+
     /** Registers the handlers. Called on both sides; only the current side's hooks ever dispatch. */
     fun register() {
+        // The chunk pair observes the game's own promotion and drop of one chunk of the mod's dimension.
+        // Both handlers filter on the probe's target, so whatever else the game loads stays out of it.
+        Events.CHUNK_STARTED_TICKING.register { event ->
+            if (event.level.dimensionId == MOD_DIMENSION && event.chunk.pos == ChunkPos.containing(CHUNK_PROBE_POSITION)) {
+                chunkTickingSeen = true
+            }
+        }
+        Events.CHUNK_UNLOADED.register { event ->
+            if (event.level.dimensionId == MOD_DIMENSION && event.chunk.pos == ChunkPos.containing(CHUNK_PROBE_POSITION)) {
+                chunkUnloadedSeen = true
+            }
+        }
         Events.SERVER_STARTED.register { event ->
             val dimensions = event.server.dimensionIds
             E2E.check(
@@ -469,6 +497,7 @@ object WorldProbe {
         step("api.clock_rate_and_pause") { probeClockRate() }
         step("content.custom_clock") { probeCustomClock() }
         step("content.custom_dimension") { probeCustomDimension() }
+        step("api.chunk_lifecycle") { probeChunkLifecycle() }
         // The client's copy of the clock only exists in a client process, so the dedicated run must not
         // wait for a step it can never satisfy.
         if (!dedicated) step("api.clock_client_sync") { probeClockSync() }
@@ -906,6 +935,98 @@ object WorldProbe {
         )
         return true
     }
+
+    private var chunkPhase = 0
+    private var chunkPhaseTick = -1
+
+    /**
+     * The chunk lifecycle, driven in the dimension this mod declared — where no player will ever walk. Forcing
+     * the chunk is the game's own `/forceload` ticket, and what follows is the game's doing: it generates the
+     * column, dispatches `CHUNK_STARTED_TICKING` with its own `LevelChunk`, and only then does the position
+     * answer as loaded and take a block. Releasing the ticket has to make the game drop the chunk again, and
+     * `CHUNK_UNLOADED` is that report. Every number here is a tick window, so a phase that never arrives
+     * reports red instead of waiting for the run to end.
+     */
+    private fun probeChunkLifecycle(): Boolean {
+        val server = OMLGame.server ?: return false
+        val level = server.levelById(MOD_DIMENSION) ?: return false
+        val target = ChunkPos.containing(CHUNK_PROBE_POSITION)
+        if (chunkPhase == 0) {
+            chunkTickingSeen = false
+            chunkUnloadedSeen = false
+            val added = level.forceLoadChunk(CHUNK_PROBE_POSITION)
+            val read = level.isForceLoaded(CHUNK_PROBE_POSITION)
+            val listed = target in level.forceLoadedChunkPositions
+            val already = level.forceLoadChunk(CHUNK_PROBE_POSITION)
+            if (!added || !read || !listed || already) {
+                E2E.check(
+                    "api.chunk_lifecycle", false,
+                    "forceLoadChunk=$added isForceLoaded=$read listed=$listed second add=$already " +
+                        "(a re-add must not claim it changed the table), forced=${level.forceLoadedChunkPositions}",
+                )
+                chunkPhase = 4
+                return true
+            }
+            chunkPhase = 1
+            chunkPhaseTick = server.tickCount
+            return false
+        }
+        val elapsed = server.tickCount - chunkPhaseTick
+        if (chunkPhase == 1) {
+            if (!chunkTickingSeen) {
+                if (elapsed < CHUNK_TICK_WAIT_LIMIT) return false
+                E2E.check(
+                    "api.chunk_lifecycle", false,
+                    "CHUNK_STARTED_TICKING never arrived for $target of $MOD_DIMENSION in $elapsed ticks; " +
+                        "isLoaded=${level.isLoaded(CHUNK_PROBE_POSITION)} forced=${level.forceLoadedChunkPositions}",
+                )
+                chunkPhase = 4
+                return true
+            }
+            val loaded = level.isLoaded(CHUNK_PROBE_POSITION)
+            val wrote = loaded && level.setBlockAt(CHUNK_PROBE_POSITION, CHUNK_PROBE_BLOCK)
+            val read = level.blockIdAt(CHUNK_PROBE_POSITION)
+            val released = level.releaseForceLoadedChunk(CHUNK_PROBE_POSITION)
+            val stillForced = level.isForceLoaded(CHUNK_PROBE_POSITION)
+            val reReleased = level.releaseForceLoadedChunk(CHUNK_PROBE_POSITION)
+            chunkPhaseFlags = listOf(
+                "the game reported the chunk ticking" to chunkTickingSeen,
+                "the forced position reads as loaded" to loaded,
+                "a block can be placed there" to (wrote && read == CHUNK_PROBE_BLOCK),
+                "releasing the ticket answers changed" to released,
+                "the table no longer holds it" to (!stillForced && !reReleased),
+            )
+            chunkPhase = 2
+            chunkPhaseTick = server.tickCount
+            return false
+        }
+        if (chunkPhase == 2) {
+            if (!chunkUnloadedSeen) {
+                if (elapsed < CHUNK_TICK_WAIT_LIMIT) return false
+                chunkPhaseFlags += ("the game reported the chunk dropped" to false)
+                E2E.check(
+                    "api.chunk_lifecycle", false,
+                    "${chunkPhaseFlags.filterNot { it.second }.map { it.first }} failed; " +
+                        "CHUNK_UNLOADED never arrived in $elapsed ticks after release, " +
+                        "isLoaded=${level.isLoaded(CHUNK_PROBE_POSITION)}",
+                )
+                chunkPhase = 4
+                return true
+            }
+        }
+        val flags = chunkPhaseFlags + ("the game reported the chunk dropped" to chunkUnloadedSeen)
+        E2E.check(
+            "api.chunk_lifecycle",
+            flags.all { it.second },
+            "${flags.filterNot { it.second }.map { it.first }} failed of ${flags.size}; " +
+                "chunk $target of $MOD_DIMENSION loaded and dropped, " +
+                "block=${level.blockIdAt(CHUNK_PROBE_POSITION)} at tick $elapsed after release",
+        )
+        chunkPhase = 4
+        return true
+    }
+
+    private var chunkPhaseFlags: List<Pair<String, Boolean>> = emptyList()
 
     /**
      * The dimension this mod's content pack declared, measured by what the game made of it: a `ServerLevel`

@@ -134,7 +134,7 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider, OM
                 // reloaded during boot, and weather, clocks, game rules and particles belong to the level.
                 "event.level_tick", "content.damage_type", "api.world_weather",
                 "api.world_clock", "api.clock_markers", "api.clock_rate_and_pause",
-                "content.custom_clock", "content.custom_dimension",
+                "content.custom_clock", "content.custom_dimension", "api.chunk_lifecycle",
                 "api.server_game_rules", "api.world_particles_arguments", "api.entity_equipment",
             )
         } else {
@@ -181,7 +181,7 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider, OM
                     "event.level_tick", "content.damage_type",
                     "api.world_weather", "api.server_game_rules", "api.world_particles_arguments", "api.entity_equipment",
                     "api.world_clock", "api.clock_markers", "api.clock_rate_and_pause",
-                    "content.custom_clock", "content.custom_dimension",
+                    "content.custom_clock", "content.custom_dimension", "api.chunk_lifecycle",
                     "api.clock_client_sync", "api.world_container", "api.player_opened_menu",
                     "api.player_equipment",
                     "scheduler.server_task", "scheduler.client_task",
