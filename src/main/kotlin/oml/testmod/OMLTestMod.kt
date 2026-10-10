@@ -88,6 +88,24 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider, OM
             effects = "burning",
             exhaustion = 0.2f,
         )
+        // Tag probe: OML serves these as `data/minecraft/tags/damage_type/<is_fire|is_freezing>.json` and
+        // `data/oml_testmod/tags/damage_type/melting_causes.json`, so the game's own tag loader reads them.
+        // Joining `#minecraft:is_fire` is the case that changes what the game does with the damage; the pack's
+        // own group carries the other shapes the file format has — a reference to another group, an optional
+        // member nothing registers, and a member from a second pack (TechMod adds `techmod:crush` to it, and
+        // the game reads one file per tag).
+        registry.declareTag("minecraft:damage_type", "minecraft:is_fire") { element("test_melt") }
+        registry.declareTag("minecraft:damage_type", "melting_causes") {
+            element("test_melt")
+            tag("minecraft:is_drowning")
+            element("no_such_type", required = false)
+        }
+        // Replacing a group the game shipped: the file's members become the whole group, which also measures
+        // where OML's injected pack ranks against the builtin one. No probe runs the freezing path.
+        registry.declareTag("minecraft:damage_type", "minecraft:is_freezing") {
+            replace = true
+            element("test_melt")
+        }
         // Time-track probe: OML serves these as `data/oml_testmod/world_clock/test_clock.json` and
         // `data/oml_testmod/timeline/test_timeline.json` from the injected content pack, so the game's own
         // datapack reload registers both. WorldProbe reads them back out of the game's registries and moves
@@ -151,7 +169,7 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider, OM
                 "api.registry_reads", "scheduler.server_task",
                 // None of these need a player: the server ticks its own levels, the content pack is
                 // reloaded during boot, and weather, clocks, game rules and particles belong to the level.
-                "event.level_tick", "content.damage_type", "api.world_weather",
+                "event.level_tick", "content.damage_type", "content.custom_tag", "api.world_weather",
                 "api.world_clock", "api.clock_markers", "api.clock_rate_and_pause",
                 "content.custom_clock", "content.custom_dimension", "api.chunk_lifecycle",
                 "api.permission_nodes", "api.block_entity_read", "api.dimension_teleport",
@@ -199,7 +217,7 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider, OM
                     "api.entity_attributes", "api.entity_hurt", "api.entity_fire",
                     // In singleplayer these are the two-level case: the integrated level and the rendered
                     // one each report their own tick, and the mod's damage type is loaded either way.
-                    "event.level_tick", "content.damage_type",
+                    "event.level_tick", "content.damage_type", "content.custom_tag",
                     "api.world_weather", "api.server_game_rules", "api.world_particles_arguments", "api.entity_equipment",
                     "api.world_clock", "api.clock_markers", "api.clock_rate_and_pause",
                     "content.custom_clock", "content.custom_dimension", "api.chunk_lifecycle",

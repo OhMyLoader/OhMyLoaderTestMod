@@ -77,6 +77,11 @@ class TechMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider {
             registry.declareItem(plate)
         }
 
+        // A second pack joining one tag: the game reads a single file per tag, so this member has to reach the
+        // group `oml_testmod` opened, which is what WorldProbe measures.
+        registry.declareDamageType(id = "crush", messageId = "techmod.crushes")
+        registry.declareTag("minecraft:damage_type", "oml_testmod:melting_causes") { element("crush") }
+
         // The press exercises the BlockEntity API: its tick belongs to the block rather than to a
         // global SERVER_TICK handler, and its progress persists in OMLBlockData with the world.
         registry.declareBlock("press") {

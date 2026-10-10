@@ -10,6 +10,7 @@ import net.minecraft.server.level.ServerLevel
 import net.minecraft.server.level.ServerPlayer
 import net.minecraft.core.Direction
 import net.minecraft.tags.TagKey
+import net.minecraft.tags.DamageTypeTags
 import net.minecraft.world.InteractionResult
 import net.minecraft.world.MenuProvider
 import net.minecraft.world.damagesource.DamageSource
@@ -120,6 +121,12 @@ object WorldProbe {
     /** The damage type [OMLTestMod] declares; the game must have loaded it from OML's content pack. */
     private const val MOD_DAMAGE_TYPE = "oml_testmod:test_melt"
     private const val MOD_DAMAGE_MESSAGE = "oml_testmod.melts"
+
+    /** The groups the tag probe reads back: one joined from vanilla, one the pack opened, one it replaced. */
+    private const val FIRE_TAG = "minecraft:is_fire"
+    private const val FREEZING_TAG = "minecraft:is_freezing"
+    private const val MOD_TAG = "oml_testmod:melting_causes"
+    private const val TECH_DAMAGE_TYPE = "techmod:crush"
     private const val OVERWORLD = "minecraft:overworld"
 
     /** A dimension whose type names no clock: the game has no time to read or write there. */
@@ -268,6 +275,9 @@ object WorldProbe {
     /** What the hook saw of the damage this probe **dealt**: amount, damage type, and whether an attacker
      *  was credited — the same three things a mob's own attack arrives with. */
     private var hurtActionObservation: Triple<Float, String, Boolean>? = null
+
+    /** The game's own tag reads on the source it built: `is_fire`, `is_projectile`. */
+    private var sourceTagObservation: Pair<Boolean, Boolean>? = null
 
     /** LEVEL_TICK counts and first-seen dimensions, kept per side: the same run ticks two levels. */
     private var serverLevelTicks = 0
@@ -476,6 +486,8 @@ object WorldProbe {
             // that the game runs it through the same hook a mob's attack uses.
             if (driveHurtAction && event.entity.uuid == drivenUuid) {
                 hurtActionObservation = Triple(event.amount, event.source.type().msgId(), event.source.entity != null)
+                sourceTagObservation = event.source.`is`(DamageTypeTags.IS_FIRE) to
+                    event.source.`is`(DamageTypeTags.IS_PROJECTILE)
             }
         }
         Events.BLOCK_USED.register { event ->
@@ -533,6 +545,7 @@ object WorldProbe {
         // None of these need a player, so they also run on the headless dedicated-server gate.
         step("event.level_tick") { probeLevelTick() }
         step("content.damage_type") { probeDeclaredDamageType() }
+        step("content.custom_tag") { probeDamageTypeTag() }
         step("api.world_weather") { probeWeather() }
         step("api.world_clock") { probeClock() }
         step("api.clock_markers") { probeClockMarkers() }
@@ -2167,6 +2180,7 @@ object WorldProbe {
         attacker: ServerPlayer? = null,
     ): DealtDamage {
         hurtActionObservation = null
+        sourceTagObservation = null
         drivenUuid = target.uuid
         driveHurtAction = true
         val healthBefore = target.health
@@ -2201,6 +2215,48 @@ object WorldProbe {
                 melt.cost == HURT_AMOUNT && !absent.applied,
             "the game registered $MOD_DAMAGE_TYPE and applied it: the hook saw ${melt.observed} for " +
                 "${melt.cost} health; an unregistered id applied=${absent.applied}",
+        )
+        return true
+    }
+
+    /**
+     * The tag files OML served, read back as the game's own answer. What is worth measuring is that the file
+     * format has three shapes and they resolve differently — a bare id, a `#` reference to another group whose
+     * members join this one, and an optional member the registry has never heard of, which must not drop the
+     * group the way a required missing one does — plus two things no read of OML's own state could show: a
+     * second pack's member arriving in the one file the game reads per tag, and `DamageSource.is(tag)` on the
+     * source the game built for the damage the probe dealt.
+     */
+    private fun probeDamageTypeTag(): Boolean {
+        val server = OMLGame.server ?: return false
+        val damageTypes = server.registry(Registries.DAMAGE_TYPE) ?: return false
+        val world = server.levelById(OVERWORLD) ?: return false
+        val cow = world.spawnLivingEntity(COW, 0.5, 200.0, 0.5) ?: return false
+        val dealt = driveDamageWith(cow, MOD_DAMAGE_TYPE)
+        val tagged = sourceTagObservation
+        cow.discard()
+        val fireMembers = damageTypes.membersOf(Registries.DAMAGE_TYPE, FIRE_TAG)
+        val ownMembers = damageTypes.membersOf(Registries.DAMAGE_TYPE, MOD_TAG)
+        val freezingMembers = damageTypes.membersOf(Registries.DAMAGE_TYPE, FREEZING_TAG)
+        val flags = listOf(
+            "the game ran the damage the tag rides on" to dealt.applied,
+            "this pack's member reached the vanilla group it joined" to (MOD_DAMAGE_TYPE in fireMembers),
+            "the entry reads its own groups back" to (FIRE_TAG in damageTypes.tagsOf(MOD_DAMAGE_TYPE)),
+            "the game holds the group this pack opened" to (MOD_TAG in damageTypes.tagIds(Registries.DAMAGE_TYPE)),
+            "a second pack's member merged into the same file" to (TECH_DAMAGE_TYPE in ownMembers),
+            "a member may name another group" to ("minecraft:drown" in ownMembers),
+            "an unregistered optional member leaves the group standing" to (MOD_DAMAGE_TYPE in ownMembers),
+            "a replacing declaration is the group's whole content" to (
+                freezingMembers == listOf(MOD_DAMAGE_TYPE)
+                ),
+            "the game's own source answers the tag" to (tagged == (true to false)),
+        )
+        E2E.check(
+            "content.custom_tag",
+            flags.all { it.second },
+            "${flags.filterNot { it.second }.map { it.first }} failed of ${flags.size}; fire=$fireMembers " +
+                "own=$ownMembers freezing=$freezingMembers meltTags=${damageTypes.tagsOf(MOD_DAMAGE_TYPE)} " +
+                "tagged=$tagged applied=${dealt.applied}",
         )
         return true
     }
