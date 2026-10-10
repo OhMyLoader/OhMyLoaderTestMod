@@ -141,6 +141,19 @@ object WorldProbe {
     private const val MOD_MARKER_HIGH = "oml_testmod:high_tide"
     private const val MOD_MARKER_HIGH_TICKS = 12000
 
+    /** The second declared dimension, whose type names no clock — the pair the teleport probe moves between. */
+    private const val MOD_DIMENSION_B = "oml_testmod:test_dim_b"
+    private const val ABSENT_DIMENSION_B = "oml_testmod:no_such_dim"
+    /** Its own column, so the ticket probes below never release a chunk another probe is holding. */
+    private val TELEPORT_POSITION = BlockPos(72, 40, 72)
+    private const val TELEPORT_X = 72.5
+    private const val TELEPORT_Y = 41.0
+    private const val TELEPORT_Z = 72.5
+
+    /** A block with a block entity, declared by the techmod in the same run: `techmod:press`. */
+    private const val PRESS_BLOCK = "techmod:press"
+    private val PRESS_POSITION = BlockPos(120, 40, 120)
+
     /** A node nothing in vanilla grants; the gated command and the grant probe both address it. */
     private const val MOD_NODE = "oml_testmod:build"
     private const val CHAT_NODE = "minecraft:chat/send_messages"
@@ -351,6 +364,15 @@ object WorldProbe {
     /** How many times the node-gated command's handler actually ran. */
     var gatedRuns = 0
 
+    /**
+     * `"dimensionId@cx,cz"` for every chunk the game has said is ticking and has not since dropped. A forced
+     * chunk is only *writable* once it reaches that state, which is why the probes below wait on it instead of
+     * on `isLoaded`.
+     */
+    private val tickingChunks = HashSet<String>()
+
+    private fun tickingKey(dimensionId: String, chunk: ChunkPos): String = "$dimensionId@${chunk.x()},${chunk.z()}"
+
     private val reported = HashSet<String>()
     private val waited = HashMap<String, Int>()
 
@@ -365,11 +387,13 @@ object WorldProbe {
         // The chunk pair observes the game's own promotion and drop of one chunk of the mod's dimension.
         // Both handlers filter on the probe's target, so whatever else the game loads stays out of it.
         Events.CHUNK_STARTED_TICKING.register { event ->
+            tickingChunks += tickingKey(event.level.dimensionId, event.chunk.pos)
             if (event.level.dimensionId == MOD_DIMENSION && event.chunk.pos == ChunkPos.containing(CHUNK_PROBE_POSITION)) {
                 chunkTickingSeen = true
             }
         }
         Events.CHUNK_UNLOADED.register { event ->
+            tickingChunks -= tickingKey(event.level.dimensionId, event.chunk.pos)
             if (event.level.dimensionId == MOD_DIMENSION && event.chunk.pos == ChunkPos.containing(CHUNK_PROBE_POSITION)) {
                 chunkUnloadedSeen = true
             }
@@ -509,6 +533,8 @@ object WorldProbe {
         step("content.custom_dimension") { probeCustomDimension() }
         step("api.chunk_lifecycle") { probeChunkLifecycle() }
         step("api.permission_nodes") { probePermissionNodes() }
+        step("api.block_entity_read") { probeBlockEntityRead() }
+        step("api.dimension_teleport") { probeDimensionTeleport() }
         // The client's copy of the clock only exists in a client process, so the dedicated run must not
         // wait for a step it can never satisfy.
         if (!dedicated) step("api.clock_client_sync") { probeClockSync() }
@@ -546,6 +572,7 @@ object WorldProbe {
         step("api.world_container") { probeContainer(player) }
         step("api.player_equipment") { probePlayerEquipment(player) }
         step("api.permission_grant") { probePermissionGrant(player) }
+        step("api.player_dimension_teleport") { probePlayerDimensionTeleport(player) }
         step("api.player_opened_menu") { probeOpenedMenu(player) }
         step("api.world_particles") { probeParticles(player) }
         // Last: it kills the player and brings them back, so nothing may depend on the handle afterwards.
@@ -1025,6 +1052,189 @@ object WorldProbe {
                 "grant=$granted revoke=$revoked cleared=$cleared runs after grant/revoke=" +
                 "$runsAfterGrant/$runsAfterRevoke overrides=$overrides level=${player.permissionLevel}",
         )
+        return true
+    }
+
+    private var teleportPhase = 0
+    private var teleportTick = -1
+    private var pressWaitTick = -1
+    private var pressWriteTick = -1
+    private var teleportCow: LivingEntity? = null
+    private var teleportMoved: Entity? = null
+
+    /**
+     * Force-loads the probe column of [dimensionId] and answers only once the game has it **ticking**: a chunk
+     * that is merely present refuses block writes and does not hold entities yet, so waiting on `isLoaded`
+     * would have the probes write into a column the game has not finished building. The ticket call is
+     * idempotent, which is why its return value is ignored here.
+     */
+    private fun chunkReady(server: MinecraftServer, dimensionId: String, position: BlockPos): Boolean {
+        val level = server.levelById(dimensionId) ?: return false
+        level.forceLoadChunk(position)
+        return tickingKey(dimensionId, ChunkPos.containing(position)) in tickingChunks
+    }
+
+    /**
+     * Moving an entity between two dimensions this mod declared, both of them empty of players. Every claim is
+     * the game's: the entity is in the second level's own list and not in the first's any more, its position is
+     * the one the call asked for, and the two levels still disagree about their clock because their declared
+     * types do. A destination the server has not loaded is refused and leaves the entity where it was.
+     */
+    private fun probeDimensionTeleport(): Boolean {
+        val server = OMLGame.server ?: return false
+        val a = server.levelById(MOD_DIMENSION) ?: return false
+        val b = server.levelById(MOD_DIMENSION_B) ?: return false
+        if (teleportPhase == 0) {
+            if (!(chunkReady(server, MOD_DIMENSION, TELEPORT_POSITION) &&
+                chunkReady(server, MOD_DIMENSION_B, TELEPORT_POSITION))) {
+                if (teleportTick < 0) teleportTick = server.tickCount
+                if (server.tickCount - teleportTick < CHUNK_TICK_WAIT_LIMIT) return false
+                E2E.check(
+                    "api.dimension_teleport", false,
+                    "the declared dimensions never loaded their forced column in " +
+                        "${server.tickCount - teleportTick} ticks: a=${a.isLoaded(TELEPORT_POSITION)} " +
+                        "b=${b.isLoaded(TELEPORT_POSITION)}",
+                )
+                teleportPhase = 3
+                return true
+            }
+            val cow = a.spawnLivingEntity(COW, TELEPORT_X, TELEPORT_Y, TELEPORT_Z)
+            if (cow == null) {
+                E2E.check("api.dimension_teleport", false, "no cow could be spawned in the declared dimension")
+                teleportPhase = 3
+                return true
+            }
+            teleportCow = cow
+            teleportMoved = cow.teleportToLevel(MOD_DIMENSION_B, TELEPORT_X, TELEPORT_Y, TELEPORT_Z)
+            teleportPhase = 1
+            return false
+        }
+        if (teleportPhase == 1) {
+            // The copy the game made on the way in is tracked by the destination's section storage, which is
+            // only settled after the tick it arrived in — reading the list in the same tick answers for a level
+            // that does not know it yet, so the probe gives the game one tick and then asks.
+            teleportPhase = 2
+            return false
+        }
+        val cow = teleportCow ?: return true
+        val moved = teleportMoved
+        val refused = moved?.teleportToLevel(ABSENT_DIMENSION_B, 0.0, TELEPORT_Y, 0.0)
+        val flags = listOf(
+            "the move answered an entity" to (moved != null),
+            "the game put it in the second dimension" to (moved?.dimensionId == MOD_DIMENSION_B),
+            "the level it reports is the server's own" to (moved?.level() === b),
+            "the column is the one the request named" to (
+                moved?.blockPosition()?.x == 72 && moved.blockPosition().z == 72
+                ),
+            "the game still holds it" to (moved != null && !moved.isRemoved),
+            "the first level let the original go" to (a.getEntity(cow.id) == null),
+            "the second level holds the moved one" to (moved != null && b.getEntity(moved.id) === moved),
+            "an unloaded destination is refused" to (refused == null && moved?.level() === b),
+            "the two types still disagree about their clock" to (
+                a.clock?.getRegisteredName() == MOD_CLOCK && b.clock == null
+                ),
+        )
+        val back = moved?.teleportToLevel(MOD_DIMENSION, TELEPORT_X, TELEPORT_Y, TELEPORT_Z)
+        (back ?: moved ?: cow as Entity).discard()
+        a.releaseForceLoadedChunk(TELEPORT_POSITION)
+        b.releaseForceLoadedChunk(TELEPORT_POSITION)
+        E2E.check(
+            "api.dimension_teleport",
+            flags.all { it.second } && back?.dimensionId == MOD_DIMENSION,
+            "${flags.filterNot { it.second }.map { it.first }} failed of ${flags.size}; moved=" +
+                "${moved?.dimensionId} refused=$refused back=${back?.dimensionId} " +
+                "aClock=${a.clock?.getRegisteredName()} bClock=${b.clock?.getRegisteredName()} " +
+                "bEntities=${b.entities().size} byId=${moved?.let { b.getEntity(it.id) }} " +
+                "pos=${moved?.blockPosition()} fell=${moved?.position()} cowRemoved=${cow.isRemoved} " +
+                "byUuid=${moved?.let { b.getEntityInAnyDimension(it.uuid) }}",
+        )
+        teleportPhase = 3
+        teleportCow = null
+        teleportMoved = null
+        return true
+    }
+
+    /**
+     * The block entity a placed block owns, read as the game's own object. The two refusals are the point:
+     * an unloaded position answers null rather than reaching through `getChunkAt` and loading a chunk nobody
+     * asked for, and taking the block away takes its block entity with it.
+     */
+    private fun probeBlockEntityRead(): Boolean {
+        val server = OMLGame.server ?: return false
+        val level = server.levelById(MOD_DIMENSION) ?: return false
+        if (!chunkReady(server, MOD_DIMENSION, PRESS_POSITION)) {
+            if (pressWaitTick < 0) pressWaitTick = server.tickCount
+            if (server.tickCount - pressWaitTick < CHUNK_TICK_WAIT_LIMIT) return false
+            E2E.check(
+                "api.block_entity_read", false,
+                "the declared dimension never brought ${PRESS_POSITION}'s chunk to ticking in " +
+                    "$CHUNK_TICK_WAIT_LIMIT ticks (loaded=${level.isLoaded(PRESS_POSITION)})",
+            )
+            return true
+        }
+        // One tick of distance between the promotion and the write: the game applies a block change into a
+        // chunk it promoted on this very tick through its own post-promotion pass, so the same-tick read-back
+        // is not the game's finished answer. Measured: same-tick verdict false, next-tick verdict true, with
+        // the position holding the block both times.
+        if (pressWriteTick < 0) {
+            pressWriteTick = server.tickCount
+            return false
+        }
+        val placed = level.setBlockAt(PRESS_POSITION, PRESS_BLOCK)
+        val idAfterWrite = level.blockIdAt(PRESS_POSITION)
+        val entity = level.blockEntityAt(PRESS_POSITION)
+        val unloaded = level.blockEntityAt(PRESS_POSITION.offset(4096, 0, 0))
+        val removed = level.setBlockAt(PRESS_POSITION, "minecraft:air")
+        val afterRemoval = level.blockEntityAt(PRESS_POSITION)
+        val press = OMLRegistries.block(PRESS_BLOCK)
+        val flags = listOf(
+            "the block took, and the game holds it" to (placed && idAfterWrite == PRESS_BLOCK),
+            "the game owns a block entity there" to (entity != null),
+            "it reports its own position and state" to (
+                entity?.blockPos == PRESS_POSITION && entity.blockState.block == press
+                ),
+            "an unloaded position answers null, without loading it" to (unloaded == null),
+            "taking the block took the block entity too" to (removed && afterRemoval == null),
+            "a press is not storage" to (entity as? Container == null),
+        )
+        E2E.check(
+            "api.block_entity_read",
+            flags.all { it.second },
+            "${flags.filterNot { it.second }.map { it.first }} failed of ${flags.size}; placed=$placed " +
+                "entity=${entity?.javaClass?.simpleName} pos=${entity?.blockPos} state=${entity?.blockState} " +
+                "unloadedAnswer=$unloaded afterRemoval=$afterRemoval removed=$removed " +
+                "idNow=${level.blockIdAt(PRESS_POSITION)}",
+        )
+        level.releaseForceLoadedChunk(PRESS_POSITION)
+        return true
+    }
+
+    /**
+     * A player carried into the declared dimension and back, which is the same transition with the
+     * connection moved along: the answer is the player the server holds afterwards, and the dimension's
+     * declared clock is what the player now stands in.
+     */
+    private fun probePlayerDimensionTeleport(player: ServerPlayer): Boolean {
+        val server = OMLGame.server ?: return false
+        if (!chunkReady(server, MOD_DIMENSION, TELEPORT_POSITION)) return false
+        val there = player.teleportToLevel(MOD_DIMENSION, TELEPORT_X, TELEPORT_Y, TELEPORT_Z)
+        val arrived = there?.level() === server.levelById(MOD_DIMENSION)
+        val clock = there?.level()?.clock
+        val back = there?.teleportToLevel(OVERWORLD, TELEPORT_X, TELEPORT_Y, TELEPORT_Z)
+        val flags = listOf(
+            "the player arrived in the declared dimension" to (there != null && arrived),
+            "the game kept the same player instance" to (there === player),
+            "the dimension's clock is the mod's own" to (clock?.getRegisteredName() == MOD_CLOCK),
+            "the player is back in the overworld" to (back?.dimensionId == OVERWORLD),
+        )
+        E2E.check(
+            "api.player_dimension_teleport",
+            flags.all { it.second },
+            "${flags.filterNot { it.second }.map { it.first }} failed of ${flags.size}; there=" +
+                "${there?.dimensionId} same=${there === player} clock=${clock?.getRegisteredName()} " +
+                "back=${back?.dimensionId}",
+        )
+        server.levelById(MOD_DIMENSION)?.releaseForceLoadedChunk(TELEPORT_POSITION)
         return true
     }
 
@@ -2236,6 +2446,9 @@ object WorldProbe {
         source: DamageSource,
         rewriting: Boolean,
     ): Pair<Float, Boolean> {
+        // Both hits start from full health: a rewritten amount that would kill what is left measures its delta
+        // against the remaining health, not against the amount the handler wrote.
+        player.health = player.maxHealth
         val healthBefore = player.health
         rewriteObservation = null
         drivenUuid = player.uuid

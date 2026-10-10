@@ -119,6 +119,19 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider, OM
             layer("minecraft:bedrock", 1)
             biome = "minecraft:plains"
         }
+        // A second dimension, on a type that names no clock at all: the pair is what the cross-dimension
+        // teleport probe moves an entity between without needing a player to load a vanilla chunk.
+        registry.declareDimensionType("test_shallow") {
+            minY = 0
+            height = 128
+            logicalHeight = 128
+            skybox = "none"
+        }
+        registry.declareDimension("test_dim_b") {
+            type = "test_shallow"
+            layer("minecraft:bedrock", 1)
+            biome = "minecraft:plains"
+        }
         E2E.hit("content.declared")
     }
 
@@ -141,7 +154,7 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider, OM
                 "event.level_tick", "content.damage_type", "api.world_weather",
                 "api.world_clock", "api.clock_markers", "api.clock_rate_and_pause",
                 "content.custom_clock", "content.custom_dimension", "api.chunk_lifecycle",
-                "api.permission_nodes",
+                "api.permission_nodes", "api.block_entity_read", "api.dimension_teleport",
                 "api.server_game_rules", "api.world_particles_arguments", "api.entity_equipment",
             )
         } else {
@@ -189,7 +202,8 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider, OM
                     "api.world_weather", "api.server_game_rules", "api.world_particles_arguments", "api.entity_equipment",
                     "api.world_clock", "api.clock_markers", "api.clock_rate_and_pause",
                     "content.custom_clock", "content.custom_dimension", "api.chunk_lifecycle",
-                    "api.permission_nodes", "api.permission_grant",
+                    "api.permission_nodes", "api.permission_grant", "api.block_entity_read",
+                    "api.dimension_teleport", "api.player_dimension_teleport",
                     "api.clock_client_sync", "api.world_container", "api.player_opened_menu",
                     "api.player_equipment",
                     "scheduler.server_task", "scheduler.client_task",
