@@ -82,6 +82,17 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider, OM
             effects = "burning",
             exhaustion = 0.2f,
         )
+        // Time-track probe: OML serves these as `data/oml_testmod/world_clock/test_clock.json` and
+        // `data/oml_testmod/timeline/test_timeline.json` from the injected content pack, so the game's own
+        // datapack reload registers both. WorldProbe reads them back out of the game's registries and moves
+        // the clock onto the mod's own marker — no dimension runs on this clock, and it counts anyway.
+        registry.declareClock("test_clock")
+        registry.declareTimeline("test_timeline") {
+            clock = "test_clock"
+            periodTicks = 24000
+            marker("low_tide", 0)
+            marker("high_tide", 12000, inCommands = true)
+        }
         E2E.hit("content.declared")
     }
 
@@ -103,6 +114,7 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider, OM
                 // reloaded during boot, and weather, clocks, game rules and particles belong to the level.
                 "event.level_tick", "content.damage_type", "api.world_weather",
                 "api.world_clock", "api.clock_markers", "api.clock_rate_and_pause",
+                "content.custom_clock",
                 "api.server_game_rules", "api.world_particles_arguments", "api.entity_equipment",
             )
         } else {
@@ -149,6 +161,7 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider, OM
                     "event.level_tick", "content.damage_type",
                     "api.world_weather", "api.server_game_rules", "api.world_particles_arguments", "api.entity_equipment",
                     "api.world_clock", "api.clock_markers", "api.clock_rate_and_pause",
+                    "content.custom_clock",
                     "api.clock_client_sync", "api.world_container", "api.player_opened_menu",
                     "api.player_equipment",
                     "scheduler.server_task", "scheduler.client_task",

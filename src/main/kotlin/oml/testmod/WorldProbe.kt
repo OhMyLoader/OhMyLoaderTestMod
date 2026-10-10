@@ -128,6 +128,16 @@ object WorldProbe {
     private const val ABSENT_CLOCK = "oml_testmod:absent_clock"
     private const val ABSENT_MARKER = "oml_testmod:absent_marker"
 
+    /**
+     * The clock and timeline [OMLTestMod] declares. The game must have loaded both out of OML's content pack,
+     * run an instance for the clock, and moved it onto the mod's own marker.
+     */
+    private const val MOD_CLOCK = "oml_testmod:test_clock"
+    private const val MOD_TIMELINE = "oml_testmod:test_timeline"
+    private const val MOD_MARKER_LOW = "oml_testmod:low_tide"
+    private const val MOD_MARKER_HIGH = "oml_testmod:high_tide"
+    private const val MOD_MARKER_HIGH_TICKS = 12000
+
     /** Outside the game's own `/time rate` window, so OML has to refuse it rather than store it. */
     private const val FAST_RATE = 2f
     private const val IDLE_RATE = 0f
@@ -446,6 +456,7 @@ object WorldProbe {
         step("api.world_clock") { probeClock() }
         step("api.clock_markers") { probeClockMarkers() }
         step("api.clock_rate_and_pause") { probeClockRate() }
+        step("content.custom_clock") { probeCustomClock() }
         // The client's copy of the clock only exists in a client process, so the dedicated run must not
         // wait for a step it can never satisfy.
         if (!dedicated) step("api.clock_client_sync") { probeClockSync() }
@@ -824,9 +835,69 @@ object WorldProbe {
         return true
     }
 
+    private var customClockWindowTick = -1
+    private var customClockWindowStart = 0L
+    private var customClockFlags: List<Pair<String, Boolean>> = emptyList()
+
     /**
-     * Rate and pause, measured by what the game counts: a clock at [FAST_RATE] has to add two ticks per
-     * game tick, a paused one has to add none, and a resumed one has to start again at the game's own rate.
+     * A clock and a timeline this mod declared, measured by what the game made of them: both ids are in the
+     * game's own registry tables, the timeline answers with the clock it drives and the two markers it names
+     * (including the one `/time set` hides), and the server's clock manager runs an instance for a clock no
+     * dimension binds. The refusals are the game's: a marker belonging to another clock cannot move this one,
+     * and only the command-visible marker is offered. The position is then watched for [CLOCK_RATE_WINDOW]
+     * ticks, because "the mod's own clock counts" is a claim about what the game counted, not about OML.
+     */
+    private fun probeCustomClock(): Boolean {
+        val server = OMLGame.server ?: return false
+        val clock = server.clockById(MOD_CLOCK) ?: return false
+        val timelines = server.registry(Registries.TIMELINE) ?: return false
+        val manager = server.clockManager()
+        val instance = manager.instanceOf(clock) ?: return false
+        if (customClockWindowTick < 0) {
+            val offered = manager.markersOf(clock)
+            val foreignRefused = manager.applyMarker(clock, NOON_MARKER)
+            val moved = manager.applyMarker(clock, MOD_MARKER_HIGH)
+            customClockFlags = listOf(
+                "the mod's clock is in the game's table" to (MOD_CLOCK in server.clockIds),
+                "the mod's timeline is in the game's table" to (MOD_TIMELINE in server.timelineIds),
+                "the timeline drives the mod's clock" to (timelines.clockDrivenBy(MOD_TIMELINE) == MOD_CLOCK),
+                "both declared markers read back" to (
+                    timelines.timeMarkersOf(MOD_TIMELINE) ==
+                        mapOf(MOD_MARKER_LOW to 0, MOD_MARKER_HIGH to MOD_MARKER_HIGH_TICKS)
+                    ),
+                "markers are gathered per clock" to (
+                    server.markerIdsDriving(MOD_CLOCK).toSet() == setOf(MOD_MARKER_LOW, MOD_MARKER_HIGH)
+                    ),
+                "an unregistered clock has none" to server.markerIdsDriving(ABSENT_CLOCK).isEmpty(),
+                "only the command-visible marker is offered" to (
+                    MOD_MARKER_HIGH in offered && MOD_MARKER_LOW !in offered
+                    ),
+                "a marker of another clock is refused" to !foreignRefused,
+                "the mod's marker moved the clock" to (moved && manager.atMarker(clock, MOD_MARKER_HIGH)),
+            )
+            customClockWindowStart = instance.totalTicks()
+            customClockWindowTick = server.tickCount
+            return false
+        }
+        val elapsed = server.tickCount - customClockWindowTick
+        if (elapsed < CLOCK_RATE_WINDOW) return false
+        // The window opens inside one tick and closes inside another, so the game may have counted one less
+        // or one more than the tick delta; anything else is the clock not running.
+        val advanced = instance.totalTicks() - customClockWindowStart
+        val flags = customClockFlags + ("the clock counts on its own" to (advanced in (elapsed - 1L)..(elapsed + 1L)))
+        E2E.check(
+            "content.custom_clock",
+            flags.all { it.second },
+            "${flags.filterNot { it.second }.map { it.first }} failed of ${flags.size}; clock at " +
+                "${instance.totalTicks()} advanced $advanced in $elapsed ticks, offered markers=" +
+                "${manager.markersOf(clock).sorted()}, timelines=${server.timelineIds.sorted()}",
+        )
+        return true
+    }
+
+    /**
+     * Rate and pause, measured by what the game counts: a clock at [FAST_RATE] has to add two ticks per game
+     * tick, a paused one has to add none, and a resumed one has to start again at the game's own rate.
      * OML does no time arithmetic, so every number here is the game's. The refusals are the game's own
      * window — its clock manager would store any value, so OML checks against what `/time rate` accepts.
      */
