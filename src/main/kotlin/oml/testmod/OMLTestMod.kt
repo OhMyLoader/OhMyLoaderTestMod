@@ -93,6 +93,26 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider, OM
             marker("low_tide", 0)
             marker("high_tide", 12000, inCommands = true)
         }
+        // Dimension-track probe: these become `data/oml_testmod/dimension_type/test_deep.json` and
+        // `data/oml_testmod/dimension/test_dim.json`. The game builds a level for every entry in its
+        // `dimension` table when the server starts, so WorldProbe asks the running server for that level and
+        // reads back the flags it declared — `has_skylight = false` is the game's own weather test's input.
+        registry.declareDimensionType("test_deep") {
+            skyLight = false
+            ceiling = true
+            minY = 0
+            height = 128
+            logicalHeight = 128
+            ambientLight = 0.1f
+            skybox = "none"
+            clock = "test_clock"
+            timelines += "test_timeline"
+        }
+        registry.declareDimension("test_dim") {
+            type = "test_deep"
+            layer("minecraft:bedrock", 1)
+            biome = "minecraft:plains"
+        }
         E2E.hit("content.declared")
     }
 
@@ -114,7 +134,7 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider, OM
                 // reloaded during boot, and weather, clocks, game rules and particles belong to the level.
                 "event.level_tick", "content.damage_type", "api.world_weather",
                 "api.world_clock", "api.clock_markers", "api.clock_rate_and_pause",
-                "content.custom_clock",
+                "content.custom_clock", "content.custom_dimension",
                 "api.server_game_rules", "api.world_particles_arguments", "api.entity_equipment",
             )
         } else {
@@ -161,7 +181,7 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider, OM
                     "event.level_tick", "content.damage_type",
                     "api.world_weather", "api.server_game_rules", "api.world_particles_arguments", "api.entity_equipment",
                     "api.world_clock", "api.clock_markers", "api.clock_rate_and_pause",
-                    "content.custom_clock",
+                    "content.custom_clock", "content.custom_dimension",
                     "api.clock_client_sync", "api.world_container", "api.player_opened_menu",
                     "api.player_equipment",
                     "scheduler.server_task", "scheduler.client_task",

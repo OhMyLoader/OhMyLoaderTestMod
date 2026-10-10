@@ -138,6 +138,17 @@ object WorldProbe {
     private const val MOD_MARKER_HIGH = "oml_testmod:high_tide"
     private const val MOD_MARKER_HIGH_TICKS = 12000
 
+    /**
+     * The dimension type and dimension this mod declares. 26.3 builds a level for every `dimension` entry when
+     * the server starts, so the acceptance point is the running server answering for a dimension vanilla never
+     * had — and obeying the flags the declaration wrote.
+     */
+    private const val MOD_DIMENSION_TYPE = "oml_testmod:test_deep"
+    private const val MOD_DIMENSION = "oml_testmod:test_dim"
+    private const val ABSENT_DIMENSION = "oml_testmod:absent_dim"
+    private const val MOD_DIMENSION_HEIGHT = 128
+    private const val MOD_DIMENSION_MIN_Y = 0
+
     /** Outside the game's own `/time rate` window, so OML has to refuse it rather than store it. */
     private const val FAST_RATE = 2f
     private const val IDLE_RATE = 0f
@@ -457,6 +468,7 @@ object WorldProbe {
         step("api.clock_markers") { probeClockMarkers() }
         step("api.clock_rate_and_pause") { probeClockRate() }
         step("content.custom_clock") { probeCustomClock() }
+        step("content.custom_dimension") { probeCustomDimension() }
         // The client's copy of the clock only exists in a client process, so the dedicated run must not
         // wait for a step it can never satisfy.
         if (!dedicated) step("api.clock_client_sync") { probeClockSync() }
@@ -891,6 +903,49 @@ object WorldProbe {
             "${flags.filterNot { it.second }.map { it.first }} failed of ${flags.size}; clock at " +
                 "${instance.totalTicks()} advanced $advanced in $elapsed ticks, offered markers=" +
                 "${manager.markersOf(clock).sorted()}, timelines=${server.timelineIds.sorted()}",
+        )
+        return true
+    }
+
+    /**
+     * The dimension this mod's content pack declared, measured by what the game made of it: a `ServerLevel`
+     * exists for it (the game builds one for every entry in its own `dimension` table), it reports the declared
+     * dimension type, that type carries the declared numbers, and the clock the type names is the same holder
+     * the clock probes move. The weather test is the part that cannot be faked: `canHaveWeather()` is the
+     * game's own `hasSkyLight && !hasCeiling && dimension != theEnd`, so declaring a roofed, sunless type is
+     * what makes the game answer for this dimension the way it answers for the Nether — while the overworld,
+     * read through the same call, still says yes.
+     */
+    private fun probeCustomDimension(): Boolean {
+        val server = OMLGame.server ?: return false
+        val dim = server.levelById(MOD_DIMENSION) ?: return false
+        val overworld = server.levelById(OVERWORLD) ?: return false
+        val clock = server.clockById(MOD_CLOCK) ?: return false
+        val flags = listOf(
+            "the game built a level for the declared dimension" to (MOD_DIMENSION in server.dimensionIds),
+            "the type the level runs on is the declared one" to (dim.dimensionTypeId == MOD_DIMENSION_TYPE),
+            "the declared type is in the game's table" to (MOD_DIMENSION_TYPE in server.dimensionTypeIds),
+            "the game read the declared numbers" to (
+                dim.dimensionType().height() == MOD_DIMENSION_HEIGHT &&
+                    dim.dimensionType().minY() == MOD_DIMENSION_MIN_Y &&
+                    dim.dimensionType().logicalHeight() == MOD_DIMENSION_HEIGHT &&
+                    !dim.dimensionType().hasSkyLight() &&
+                    dim.dimensionType().hasCeiling()
+                ),
+            "the type runs on the mod's clock" to (dim.clock == clock),
+            "the clock counts for this dimension too" to ((dim.clockInstance?.totalTicks() ?: -1L) >= 0L),
+            "a roofed sunless dimension gets no weather" to !dim.canHaveWeather(),
+            "the overworld still does" to overworld.canHaveWeather(),
+            "an undeclared dimension answers no level" to (server.levelById(ABSENT_DIMENSION) == null),
+            "an undeclared type answers no type" to (server.dimensionTypeById("oml_testmod:absent_type") == null),
+        )
+        E2E.check(
+            "content.custom_dimension",
+            flags.all { it.second },
+            "${flags.filterNot { it.second }.map { it.first }} failed of ${flags.size}; dimensions=" +
+                "${server.dimensionIds.sorted()}, type=${dim.dimensionTypeId}, " +
+                "height=${dim.dimensionType().height()} minY=${dim.dimensionType().minY()} " +
+                "clock=${dim.clock?.getRegisteredName()} at ${dim.clockInstance?.totalTicks()}",
         )
         return true
     }
