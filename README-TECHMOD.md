@@ -1,10 +1,11 @@
 # techmod —— API 打样模组与缺口清单
 
-本仓库里有两个模组工程：
+本仓库里有三个模组（同一个 jar 三个 `@Mod` 入口）：
 
-- `oml_testmod`（`org.ohmyloader.testmod`）：端到端验证模组，逐条覆盖加载器能力，跑在开发闭环里；
-- `techmod`（`org.ohmyloader.techmod`）： **API 打样**模组，故意按真实模组的写法做一个材料链，
-  用来暴露 `oml-api` 的缺口。
+- `oml_testmod`（`oml.testmod`）：端到端验证模组，逐条覆盖加载器能力，跑在开发闭环里；
+- `techmod`（`oml.techmod`）： **API 打样**模组，故意按真实模组的写法做一个材料链，
+  用来暴露 `oml-api` 的缺口（就是本文件）；
+- `oml_playmod`（`oml.playmod`）：真机游玩模组，见仓库根 README 的「真机门禁与游玩会话」。
 
 ## 打样规则
 
@@ -36,7 +37,7 @@
 
 ## 运行
 
-两个模组在同一个 jar 里（同一个 jar 两个 `@Mod` 入口），按本仓库 README 的开发闭环启动即可：
+三个模组在同一个 jar 里（同一个 jar 三个 `@Mod` 入口），按本仓库 README 的开发闭环启动即可：
 
 ```bash
 # 在 OhMyLoader/ 与 OhMyLoaderGradle/ 各发布一次
