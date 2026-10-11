@@ -33,7 +33,7 @@ object PlayConfig {
         config.define("announce_joins", true, "Whether the kit greets a player into the world.")
         config.define("overlay_at_top", true, "Pin the overlay to the top-left; false moves it to mid-screen.")
         config.define("max_fps", 0, "Cap the frame rate for the kit's own overlay; 0 leaves the game alone.")
-        config.define("gallery_marker", "oml_playmod:chime", "The timeline marker the gallery clock parks on.")
+        config.define("gallery_marker", "oml_playmod:chime", "The timeline marker the gallery clock parks on; matched as an exact string, so give the full namespaced id — a short name silently never matches.")
 
         padCharge = config.getInt("pad_charge").coerceIn(0, 16)
         padLaunch = config.getDouble("pad_launch").coerceIn(0.1, 8.0)
