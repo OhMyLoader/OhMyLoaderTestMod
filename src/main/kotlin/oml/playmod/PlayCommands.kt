@@ -12,7 +12,6 @@ import org.ohmyloader.api26_3.applyTicks
 import org.ohmyloader.api26_3.attributeBase
 import org.ohmyloader.api26_3.attributeValue
 import org.ohmyloader.api26_3.blockDataAt
-import org.ohmyloader.api26_3.isForceLoaded
 import org.ohmyloader.api26_3.entitiesOfType
 import org.ohmyloader.api26_3.setAttributeBase
 import org.ohmyloader.api26_3.playSoundAt
@@ -136,6 +135,10 @@ object PlayCommands {
             }
             subcommand("wear") { executes { withPlayer(it) { p -> wearKitArmour(p) } } }
             subcommand("probe") { executes { withPlayer(it) { p -> moveProbe(p) } } }
+            // The creative book is the one screen a mod's own content has to reach, so the kit can put the
+            // player in creative and ask what the game's tab registry actually holds.
+            subcommand("creative") { executes { withPlayer(it) { p -> goCreative(p) } } }
+            subcommand("tabs") { executes { source -> source.reply(tabRow()) } }
             // The kit's own node, spoken for out loud: `/kit keeper off` takes the gate away again, which is
             // the same lever `/kit zap` refuses on without it.
             subcommand("keeper") {
@@ -422,7 +425,24 @@ object PlayCommands {
 
     private fun worldSpawnPosition(): String = server.worldSpawn.pos().toString()
 
-    /** Four moves, each a different shape of the same call, so a refusal names which shape the game took. */
+    /** The creative book is the screen mod content has to reach, so the kit can put the player in it. */
+    private fun goCreative(player: ServerPlayer): String {
+        player.setGameMode(net.minecraft.world.level.GameType.CREATIVE)
+        return "game mode ${player.gameModeName}; E opens the creative book"
+    }
+
+    /** The tab layout the creative screen renders from: every tab's row, column and alignment. */
+    private fun tabRow(): String {
+        val tabs = net.minecraft.core.registries.BuiltInRegistries.CREATIVE_MODE_TAB
+        val rows = tabs.entrySet().mapNotNull { entry ->
+            entry.value?.let {
+                val right = if (it.isAlignedRight) "R" else ""
+                "${entry.key.identifier()}=${it.row()}/${it.column()}$right"
+            }
+        }.sorted()
+        return "${rows.size} tabs: ${rows.joinToString()}"
+    }
+
     /** Three hops: the same call spelled three ways, and the player is left where they started. */
     private fun moveProbe(player: ServerPlayer): String {
         val at = player.blockPosition()
@@ -455,7 +475,7 @@ object PlayCommands {
     private fun help(source: OMLCommandSource): String = buildString {
         append("kit: give | home [clear] | pearl | claim | pad [charge|<steps>] | ")
         append("gallery [build|enter|leave] | clock [<seconds>] | zap <type> | mob <type> <count> | ")
-        append("weather <clear|rain|storm> | rule <name> <value> | wear | probe | keeper [<bool>] | ")
+        append("weather <clear|rain|storm> | rule <name> <value> | wear | probe | creative | tabs | keeper [<bool>] | ")
         append("tag [<tag>] | panel [<bool>] | anchor [here|clear|world]. ")
         append("You are ${source.name}, game mode ${PlayLookups.playerByName(source.name)?.gameModeName}, ")
         append("level ${PlayLookups.playerByName(source.name)?.permissionLevel ?: -1}, ")
