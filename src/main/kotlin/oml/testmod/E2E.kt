@@ -106,8 +106,8 @@ object E2E {
         // `oml.e2e.ticks=N`: the minimum tick dispatches before [READY]; unset means no driver, only the
         // verdict. [tick] covers what else it waits for.
         val ticks = System.getProperty("oml.e2e.ticks")?.toIntOrNull() ?: return
-        // Both sides register both events: only the current side's tick ever fires, so one counter
-        // and one driver serve the client and the dedicated server.
+        // Both events fire in a client process too — the integrated server ticks alongside the client — so
+        // ticksSeen is an unsynchronized count from two threads: approximate, and only a threshold.
         Events.CLIENT_TICK.register { tick(ticks, graceSeconds) }
         Events.SERVER_TICK.register { tick(ticks, graceSeconds) }
     }

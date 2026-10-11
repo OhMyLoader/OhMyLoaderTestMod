@@ -11,11 +11,9 @@ import org.ohmyloader.api.inject.injection
  * paths feed the same spec — the same self-check and the same hit-count report.
  *
  * The target is `com.mojang.blaze3d.platform.FramerateLimitTracker`, where 26.3 keeps the frame-rate
- * limit; the method name (`getFramerateLimit`) is unchanged. `require(1)` is kept: a rule anchored at
- * the wrong class must fail loudly at startup rather than silently do nothing. This class's only
- * dependencies are `oml-api` and itself: rule classes are loaded **before** the game classes, so
- * referencing a game class would drag it in early — the loader statically validates this; see
- * `ModRuleSets`.
+ * limit. `require(1)` is kept: a rule anchored at the wrong class must fail loudly at startup rather
+ * than silently do nothing. Rule classes load **before** the game classes, so referencing a game class
+ * here would drag it in early — the loader statically validates this.
  */
 @RuleSource("testmod-dsl")
 object TestRules : RuleSetProvider {

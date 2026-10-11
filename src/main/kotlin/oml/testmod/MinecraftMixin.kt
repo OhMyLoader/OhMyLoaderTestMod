@@ -7,12 +7,10 @@ import org.ohmyloader.api.mixin.*
  * **argument capture**, and the **CTOR_HEAD anchor**.
  *
  * The anchors are the shapes 26.3 actually has: `runTick` takes a `(Z)` render flag, which is what
- * argument capture needs to have something to capture, and the frame-rate limit is no longer a
- * `Minecraft` method — it moved to `com.mojang.blaze3d.platform.FramerateLimitTracker`, which is why
- * that half lives in [FramerateLimitMixin]. A rule that neither reads an argument nor produces a return
- * value needs one handler shape; once it must read an argument or produce a return value, the shape is
- * pinned by the target and has to be declared to match — the testmod lays out both. `TAIL` retains the
- * Mixin semantics (**the last** return); "every return" uses `RETURN`.
+ * argument capture needs to have something to capture, and the frame-rate limit is not a `Minecraft`
+ * method — that half lives in [FramerateLimitMixin]. Once a rule must read an argument or produce a
+ * return value, its handler shape is pinned by the target and has to be declared to match; `TAIL`
+ * retains the Mixin semantics (**the last** return), "every return" uses `RETURN`.
  */
 @Mixin(target = "net.minecraft.client.Minecraft")
 class MinecraftMixin {

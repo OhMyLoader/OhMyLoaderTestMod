@@ -320,16 +320,13 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider, OM
     private fun isServerSide(): Boolean = OMLGame.client == null
 
     /**
-     * In-game data-component probe: reads [test_sword] back out of `BuiltInRegistries.ITEM` and
-     * reads the item's native `DataComponentMap` — proving the freeze-point materialization
-     * produced components the running game resolves identically to vanilla items.
+     * In-game data-component probe: reads [test_sword] back out of `BuiltInRegistries.ITEM` and its
+     * native `DataComponentMap` — asserting the freeze-point materialization produced components the
+     * running game resolves like vanilla items (max damage, attribute modifiers, tool rules).
      *
-     * 26.3 binds an item's component map onto its registry holder during the server-resources
-     * bake (`ReloadableServerResources` → `DataComponentInitializers` → `bindComponents`), so the
-     * probe **retries** until the bake has run, and reads a vanilla item (`diamond_sword`) as the
-     * control: "both unbound" means "bake not run yet", while "vanilla bound but ours missing"
-     * would mean the bake skipped modded items — a real defect this probe must catch. All
-     * probe retries until the bake has run, and a failure prints instead of killing mod init.
+     * 26.3 binds an item's component map onto its holder during the server-resources bake, so the probe
+     * retries until the bake has run, with vanilla `diamond_sword` as the control: "both unbound" means
+     * "bake not run yet", while "vanilla bound but ours missing" is the defect this probe exists to catch.
      */
     private fun probeItemComponents() {
         if (componentsReadOnce) return

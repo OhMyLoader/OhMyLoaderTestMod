@@ -1014,12 +1014,6 @@ object WorldProbe {
     }
 
     /**
-     * The world's spawn, moved and read back through the game's own record. The third flag is the fact this
-     * probe exists to pin: 26.3 keeps **one** spawn record for the whole server, so a level's `respawnData` is
-     * the same object whichever dimension is asked — which is why OML puts the write on the server rather than
-     * pretending a dimension owns one.
-     */
-    /**
      * The world's own spawn record, measured through the game. Three constraints decide what the answers mean:
      * `ServerLevel`'s read and write both forward to `MinecraftServer`, so one record serves every level; the
      * record's **own** dimension is what the game resolves at respawn time (that is how `/setworldspawn` works

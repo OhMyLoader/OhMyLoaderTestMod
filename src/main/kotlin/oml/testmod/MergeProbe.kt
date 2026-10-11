@@ -12,15 +12,13 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Observation point for the class-merge demo, and the test mod's home for "measured on the real game"
- * evidence (the resource-pack probe below answers a question no unit test can: what the live
- * `ResourceManager` actually serves).
+ * evidence (the resource-pack probe below answers what the live `ResourceManager` actually serves).
  *
  * An `@Overwrite`d method body runs **inside the target class** (`net.minecraft.client.Minecraft`) and
- * calls here to report that the merged-in code really executed — the merge is transparent to callers
- * (the signature and behavior are unchanged), so only a report emitted from inside gives E2E a definite
- * acceptance point. [hit]'s argument is the mixin's `@Unique` static field, whose initializer is spliced
- * into the target class's `<clinit>`: it **must be 7**; a 0 means the `<clinit>` was not spliced, which
- * is exactly what this is watching for.
+ * calls here to report that the merged-in code really executed — the merge is transparent to callers,
+ * so only a report emitted from inside gives E2E a definite acceptance point. [hit]'s argument is the
+ * mixin's `@Unique` static field, whose initializer is spliced into the target class's `<clinit>`:
+ * it **must be 7**; a 0 means the `<clinit>` was not spliced.
  */
 object MergeProbe {
 

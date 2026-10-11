@@ -5,16 +5,11 @@ import org.ohmyloader.api.mixin.*
 /**
  * The frame-rate-limit half of the Mixin front-end validation, split onto its own target class.
  *
- * 26.3 moved the limit off `Minecraft`: there is no `getFramerateLimit()` there any more, and
- * `Minecraft.renderFrame` reads the value from
- * `com.mojang.blaze3d.platform.FramerateLimitTracker.getFramerateLimit()I` instead. A `@Mixin` declares
- * its target per class, so following the method across classes means a second mixin rather than a
- * second annotation — the value-modifying family (`@ModifyConstant` / `@ModifyReturnValue` /
- * `@ModifyExpressionValue`) included: their demos used to sit on the `Minecraft` mixin, where they were
- * guaranteed soft misses once the method moved. Every rule here keeps the **shape** it had on
- * `Minecraft`; only the target class changed.
+ * 26.3 keeps the limit in `com.mojang.blaze3d.platform.FramerateLimitTracker.getFramerateLimit()I`, not
+ * on `Minecraft` — a `@Mixin` declares its target per class, so the value-modifying rules live here
+ * rather than with the rest.
  *
- * All five rules declare `require = 1`: mixin rules are optional by default, so without it a drifted
+ * Every rule declares `require = 1`: mixin rules are optional by default, so without it a drifted
  * anchor would silently do one thing less — the exact failure this mod exists to catch.
  */
 @Mixin(target = "com.mojang.blaze3d.platform.FramerateLimitTracker")

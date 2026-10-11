@@ -8,12 +8,10 @@ import org.ohmyloader.api.mixin.Unique
  * reads its bytecode: it references a game class (it is meant to live inside one), and the rules must
  * be in place before the game class loads, so loading it would drag the game class in too early.
  *
- * After the merge, [onFrameLimitRead] is an instance method of `Minecraft`, called directly with
- * `INVOKEVIRTUAL` — so `this` is the `Minecraft` instance, and printing the class name doubles as proof
- * that the merge really happened. **No invokedynamic inside the merged section**: Kotlin string
- * templates and lambdas compile to `invokedynamic`, whose MethodHandle constant requires a class-file
- * version the merged-into class is not guaranteed to have (`ClassFormatError` — the whole class fails
- * to load), so string assembly stays in [TestRules], which is **not merged in**.
+ * After the merge, [onFrameLimitRead] is an instance method of `Minecraft`, called with `INVOKEVIRTUAL`,
+ * so `this` is the `Minecraft` instance. **No invokedynamic inside the merged section**: Kotlin string
+ * templates compile to `invokedynamic`, whose MethodHandle constant requires a class-file version the
+ * merged-into class is not guaranteed to have (`ClassFormatError`), so string assembly stays in [TestRules].
  */
 class FrameLimitPatch {
 
