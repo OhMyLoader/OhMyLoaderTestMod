@@ -156,6 +156,9 @@ object WorldProbe {
     private val ANCHOR_POSITION = BlockPos(72, 41, 72)
     private const val ANCHOR_YAW = 90f
 
+    /** How long the press ticker is given to visit a block entity the probe placed on this tick. */
+    private const val PROGRESS_TICK_WAIT_LIMIT = 20
+
     /** A border this tight excludes [OUTSIDE_BORDER_POSITION] and ANCHOR_POSITION's column alike. */
     private const val TIGHT_BORDER_SIZE = 50.0
     private val OUTSIDE_BORDER_POSITION = BlockPos(200, 41, 200)
@@ -175,6 +178,9 @@ object WorldProbe {
 
     /** A node nothing in vanilla grants; the gated command and the grant probe both address it. */
     private const val MOD_NODE = "oml_testmod:build"
+
+    /** A node a **different** pack grants to the same player, so the override table is never solely ours. */
+    private const val OTHER_PACK_NODE = "oml_playmod:keeper"
     private const val CHAT_NODE = "minecraft:chat/send_messages"
 
 
@@ -1189,7 +1195,10 @@ object WorldProbe {
             "the game's own set stops answering" to !revokeAnswers,
             "the gated command stayed refused once revoked" to (runsAfterRevoke == 1),
             "clearing drops the override" to cleared,
-            "no override is left recorded" to overrides.isEmpty(),
+            // The table is per player and shared by every pack in the run, so the claim has to be about *this*
+            // node: cleared here, while another pack's grant (the kit grants one when a player joins) stays put.
+            "this node is no longer overridden" to !overrides.containsKey(MOD_NODE),
+            "another pack's grant outlives this clear" to player.hasPermissionNode(OTHER_PACK_NODE),
             "the player is back to the game's own answer" to !player.hasPermissionNode(MOD_NODE),
         )
         E2E.check(
@@ -1209,6 +1218,7 @@ object WorldProbe {
     private var pressDataPhase = 0
     private var pressDataTick = -1
     private var pressDataProgressBefore = -1
+    private var pressDataWriteTick = -1
     private var pressDataIdentity = false
     private var teleportCow: LivingEntity? = null
     private var teleportMoved: Entity? = null
@@ -1412,10 +1422,16 @@ object WorldProbe {
             pressDataIdentity = (a.blockEntityAt(PRESS_DATA_POSITION) as? OMLBlockDataCarrier)
                 ?.blockData === dataA
             pressDataProgressBefore = dataA.getInt("progress")
+            pressDataWriteTick = server.tickCount
             pressDataPhase = 2
             return false
         }
         val dataA = server.blockDataAt(MOD_DIMENSION, PRESS_DATA_POSITION)
+        // A block entity created during this tick's probe step is only visited by the game's own block-entity
+        // pass afterwards, so one tick of distance still reads the value it was born with: wait for the ticker
+        // to show itself, bounded.
+        if ((dataA?.getInt("progress") ?: 0) <= pressDataProgressBefore &&
+            server.tickCount - pressDataWriteTick < PROGRESS_TICK_WAIT_LIMIT) return false
         val dataB = server.blockDataAt(MOD_DIMENSION_B, PRESS_DATA_POSITION)
         val progressAfter = dataA?.getInt("progress") ?: -1
         val sideA = dataA?.getInt("side", 0)
@@ -1452,7 +1468,8 @@ object WorldProbe {
             "${flags.filterNot { it.second }.map { it.first }} failed of ${flags.size}; " +
                 "progress $pressDataProgressBefore -> $progressAfter identity=$pressDataIdentity " +
                 "sideA=$sideA sideB=$sideB markerInB=$markerInB " +
-                "removed=$removedKey/$removedAgain cleared=$cleared",
+                "removed=$removedKey/$removedAgain cleared=$cleared " +
+                "ticks=${server.tickCount - pressDataWriteTick}",
         )
         a.releaseForceLoadedChunk(PRESS_DATA_POSITION)
         b.releaseForceLoadedChunk(PRESS_DATA_POSITION)
@@ -2229,6 +2246,14 @@ object WorldProbe {
         val removed = player.removeAttributeModifier(ATTACK_DAMAGE_ATTRIBUTE, MODIFIER_ID)
         val withoutModifier = player.attributeValue(ATTACK_DAMAGE_ATTRIBUTE)
         val restored = player.setAttributeBase(MAX_HEALTH_ATTRIBUTE, baseBefore)
+        // A cow is the other half of the contract: 26.3 gives attackers an attack damage and this kind of
+        // entity carries none, so the reads have to answer null and the writes refuse — the game's own getter
+        // throws for that case, which is what the surface exists to keep away from a mod.
+        val cow = spawned?.takeIf { !it.isRemoved } ?: return false
+        val cowDamage = cow.attributeValue(ATTACK_DAMAGE_ATTRIBUTE)
+        val cowWrite = cow.setAttributeBase(ATTACK_DAMAGE_ATTRIBUTE, 9.0)
+        val cowModifier = cow.addAttributeModifier(ATTACK_DAMAGE_ATTRIBUTE, MODIFIER_ID, 1.0, "add_value")
+        val cowHealth = cow.attributeValue(MAX_HEALTH_ATTRIBUTE)
         val flags = listOf(
             "raise accepted" to raised,
             "base reads back" to (raisedBase == RAISED_MAX_HEALTH),
@@ -2243,13 +2268,17 @@ object WorldProbe {
             "unknown attribute refuses write" to !player.setAttributeBase("oml_testmod:absent", 1.0),
             "unknown operation refused" to !player.addAttributeModifier(ATTACK_DAMAGE_ATTRIBUTE, MODIFIER_ID, 1.0, "sideways"),
             "removing nothing answers false" to !player.removeAttributeModifier(ATTACK_DAMAGE_ATTRIBUTE, "oml_testmod:absent"),
+            "an attribute this kind of entity lacks reads null" to (cowDamage == null),
+            "and its write refuses instead of throwing" to (!cowWrite && !cowModifier),
+            "an attribute it does carry still reads" to (cowHealth != null),
         )
         E2E.check(
             "api.entity_attributes",
             flags.all { it.second },
             "${flags.filterNot { it.second }.map { it.first }} failed of ${flags.size}; base $baseBefore -> " +
                 "$raisedBase (game cap $capNow, restored to ${player.maxHealth}), health $healthBefore -> " +
-                "$healthAfterRaise, attack $damageBefore -> $withModifier -> $withoutModifier",
+                "$healthAfterRaise, attack $damageBefore -> $withModifier -> $withoutModifier; " +
+                "cow reads damage=$cowDamage write=$cowWrite modifier=$cowModifier health=$cowHealth",
         )
         return true
     }
