@@ -208,7 +208,7 @@ object PlayCommands {
     fun recall(player: ServerPlayer): String {
         val home = PlayState.homeOf(player)
             ?: return "no waystone claimed yet"
-        val had = player.inventory.remove(PlayContent.id(PlayContent.PEARL), 1)
+        val had = if (PlayConfig.pearlCostsOne) player.inventory.remove(PlayContent.id(PlayContent.PEARL), 1) else 0
         val destination = home.second
         val moved = player.teleport(
             destination.x + 0.5, destination.y.toDouble(), destination.z + 0.5, home.first,

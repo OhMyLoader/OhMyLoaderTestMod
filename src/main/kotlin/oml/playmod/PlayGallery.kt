@@ -113,7 +113,7 @@ object PlayGallery {
         val server = gallery.server
         val clock = server.clockById(PlayContent.id(PlayContent.CLOCK)) ?: return
         val manager = gallery.clockManager()
-        val marker = PlayContent.id(PlayContent.MARKER_CHIME)
+        val marker = PlayConfig.galleryMarker
         if (!manager.markersOf(clock).contains(marker)) return
         manager.applyMarker(clock, marker)
         val players = gallery.entitiesOfType("minecraft:player")
