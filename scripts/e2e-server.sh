@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Dedicated-server end-to-end gate (M1 / AC-2 in docs/开发计划.md).
+# Dedicated-server end-to-end gate (M1 / AC-2 of the loader workspace's development plan).
 #
 # Starts the server exactly the way a player would (Gradle -> OMLBootstrap -> the game), waits for the
 # verification mod's "[OML-E2E] READY" line, stops it gracefully by sending /stop on stdin, and decides

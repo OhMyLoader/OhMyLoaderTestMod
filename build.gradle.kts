@@ -38,7 +38,7 @@ oml {
     )
 }
 
-// E2E runs (M1 in docs/开发计划.md): the verification mod's probes end in a verdict, and the run's
+// E2E runs (M1 of the loader workspace's development plan): the verification mod's probes end in a verdict, and the run's
 // exit code carries it, so a script or CI job can fail on it. `-Poml.e2e.ticks=N` is the whole switch
 // — without it the mod behaves exactly as before.
 providers.gradleProperty("oml.e2e.ticks").orNull?.let { ticks ->

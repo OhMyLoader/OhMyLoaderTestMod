@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Client end-to-end gate (M1 / AC-1 in docs/开发计划.md).
+# Client end-to-end gate (M1 / AC-1 of the loader workspace's development plan).
 #
 # Starts the client (Gradle -> OMLBootstrap -> the game) with the E2E driver enabled, joins a world,
 # and quits itself once the expectations have reported. A hard timeout wraps the whole run so a hung
