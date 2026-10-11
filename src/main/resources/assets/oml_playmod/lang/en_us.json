@@ -1,0 +1,15 @@
+{
+  "block.oml_playmod.lite_ore": "Lite Ore",
+  "block.oml_playmod.lite_block": "Lite Block",
+  "block.oml_playmod.launch_pad": "Launch Pad",
+  "block.oml_playmod.waystone": "Waystone",
+  "item.oml_playmod.raw_lite": "Raw Lite",
+  "item.oml_playmod.lite_ingot": "Lite Ingot",
+  "item.oml_playmod.lite_sword": "Lite Sword",
+  "item.oml_playmod.recall_pearl": "Recall Pearl",
+  "item.oml_playmod.gallery_key": "Gallery Key",
+  "key.categories.oml_playmod": "Playground Kit",
+  "key.oml_playmod.panel": "Kit Panel",
+  "death.attack.oml_playmod.shocks": "%1$s was shocked by %2$s",
+  "death.attack.oml_playmod.shocks.item": "%1$s was shocked by %2$s using %3$s"
+}
