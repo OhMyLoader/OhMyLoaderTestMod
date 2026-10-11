@@ -39,6 +39,20 @@ jobs:
         with:
           version: 0.16.0
       - uses: gradle/actions/setup-gradle@v6
+      # Build-cache entries are content-addressed by task inputs, so a stale snapshot only
+      # lowers the hit rate, never yields wrong outputs — the key can err on the coarse side.
+      # A source fingerprint misses the exact key once per source change, restores the latest
+      # snapshot via the prefix and saves the new outputs on top; a static key would exact-hit
+      # forever and never store anything new (save is skipped on exact hits). Placed after the
+      # sibling checkouts so the fingerprint also covers the loader and plugin sources this
+      # build consumes through mavenLocal. modules-2 stays out: dependency resolution has its
+      # own surface and would blow the 10 GB repo cap.
+      - uses: actions/cache@v6
+        with:
+          path: ~/.gradle/caches/build-cache-*
+          key: gradle-build-cache-${{ runner.os }}-${{ hashFiles('**/*.kt', '**/*.kts', '**/*.java', 'gradle/libs.versions.toml', 'gradle.properties') }}
+          restore-keys: |
+            gradle-build-cache-${{ runner.os }}-
       - run: ./gradlew -p OhMyLoader publishToMavenLocal
       - run: ./gradlew -p OhMyLoaderGradle publishToMavenLocal
       - run: ./gradlew build
@@ -68,6 +82,14 @@ jobs:
         with:
           version: 0.16.0
       - uses: gradle/actions/setup-gradle@v6
+      # Same build-cache snapshot as the build job (see there); covers all three gradle
+      # invocations below, the two mavenLocal publications included.
+      - uses: actions/cache@v6
+        with:
+          path: ~/.gradle/caches/build-cache-*
+          key: gradle-build-cache-${{ runner.os }}-${{ hashFiles('**/*.kt', '**/*.kts', '**/*.java', 'gradle/libs.versions.toml', 'gradle.properties') }}
+          restore-keys: |
+            gradle-build-cache-${{ runner.os }}-
       - uses: actions/cache@v6
         with:
           path: |
@@ -122,6 +144,14 @@ jobs:
         with:
           version: 0.16.0
       - uses: gradle/actions/setup-gradle@v6
+      # Same build-cache snapshot as the build job (see there); covers all three gradle
+      # invocations below, the two mavenLocal publications included.
+      - uses: actions/cache@v6
+        with:
+          path: ~/.gradle/caches/build-cache-*
+          key: gradle-build-cache-${{ runner.os }}-${{ hashFiles('**/*.kt', '**/*.kts', '**/*.java', 'gradle/libs.versions.toml', 'gradle.properties') }}
+          restore-keys: |
+            gradle-build-cache-${{ runner.os }}-
       - uses: actions/cache@v6
         with:
           path: |
