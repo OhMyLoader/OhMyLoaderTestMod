@@ -335,6 +335,7 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider, OM
         if (componentsReadOnce) return
         probeAttempts++
         if (probeAttempts > 1200) {
+            componentsReadOnce = true
             E2E.check("content.item_components", false, "probe gave up after 1200 attempts (~60s of ticks)")
             return
         }
@@ -389,6 +390,10 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider, OM
                 cause = cause.cause
             }
         }
+        // Terminal on success and failure alike: once the bake has run, no retry can change what the
+        // map holds, and re-running would only replay the same checks every tick. The unbound-control
+        // retry above returns non-locally, so it never reaches this.
+        componentsReadOnce = true
     }
 
     /**
