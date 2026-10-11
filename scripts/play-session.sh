@@ -89,7 +89,7 @@ WIN_W="$(sed -n 's/^WIDTH=//p' <<<"$GEOM")"; WIN_H="$(sed -n 's/^HEIGHT=//p' <<<
 revive() { focus; DISPLAY=:0 xdotool mousemove --window "$WIN" $((WIN_W / 2)) $((WIN_H / 2 + 12))
            DISPLAY=:0 xdotool click 1; sleep 3; }
 
-echo "driving the session: /kit tree, the panel key, and a walk onto the pad"
+echo "driving the session: /kit tree, the creative book, the panel key, and a walk onto the pad"
 say '/kit' 4                                       # the root lists what the kit can do
 shot
 say '/kit give' 4
@@ -99,6 +99,7 @@ say '/kit tabs' 4                             # what the game's creative tab reg
 say '/kit creative' 4
 press e 6                                     # the creative book: the screen mod content has to reach
 shot
+press e 2                                     # close the screen: KeyMapping takes no keys while a screen holds the keyboard
 say '/kit anchor here' 4                            # a waystone is not placed yet: the anchor is the test
 say '/kit mob cow 2' 5
 say '/kit zap cow' 4
