@@ -243,8 +243,12 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider, OM
             dismissBackupGate()
             NetworkProbe.tickClientSide()
             MergeProbe.reportResourceInjection()
-            WorldProbe.tickClient()
-            probeClientFeatures()
+            // Only an E2E run drives the probes: they kill and respawn the player, move them around, rewrite
+            // game rules and place blocks. Anywhere else they would be experimenting in someone's play world.
+            if (E2E.isEnabled) {
+                WorldProbe.tickClient()
+                probeClientFeatures()
+            }
             if (ticks % 200 == 0) {
                 println("[oml_testmod] ClientTickEvent received $ticks times")
             }
@@ -257,10 +261,12 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider, OM
             // The dedicated server loads its server resources during boot, which is when vanilla
             // bakes the item holders' component maps — the first point where components are
             // readable. The probe retries until the bake has run.
-            probeItemComponents()
-            probeServerData()
+            if (E2E.isEnabled) {
+                probeItemComponents()
+                probeServerData()
+            }
             NetworkProbe.tickServerSide()
-            WorldProbe.tickServer()
+            if (E2E.isEnabled) WorldProbe.tickServer()
             if (serverTicks == 1) {
                 println("[oml_testmod] ServerTickEvent active (OML has hooked the server main loop)")
             }
