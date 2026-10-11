@@ -213,7 +213,7 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider, OM
                     "api.player_effects", "api.player_heal", "api.player_sound", "api.world_sound",
                     "api.player_permissions", "api.player_teleport",
                     "api.entity_spawn", "api.entity_motion", "api.entity_removal", "api.block_state",
-                    "api.world_particles", "event.player_respawned",
+                    "api.world_particles", "event.player_respawned", "api.player_teleport_replaced_handle",
                     "api.entity_attributes", "api.entity_hurt", "api.entity_fire",
                     // In singleplayer these are the two-level case: the integrated level and the rendered
                     // one each report their own tick, and the mod's damage type is loaded either way.

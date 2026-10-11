@@ -329,6 +329,9 @@ object WorldProbe {
     @Volatile
     private var driveRespawnWindow = false
 
+    /** The instance the game replaced at the driven respawn, kept to address the player through it. */
+    private var replacedHandle: ServerPlayer? = null
+
     /** Which [WEATHER_DRIVE] state [probeWeather] has to reach next. */
     private var weatherPhase = 0
 
@@ -611,6 +614,7 @@ object WorldProbe {
         step("api.world_particles") { probeParticles(player) }
         // Last: it kills the player and brings them back, so nothing may depend on the handle afterwards.
         step("event.player_respawned") { driveRespawn(player) }
+        step("api.player_teleport_replaced_handle") { driveTeleportAfterRespawn() }
     }
 
     /** These run inside the game's tick dispatch, so a throw here would otherwise stop the game loop. */
@@ -2645,6 +2649,30 @@ object WorldProbe {
                 "a different instance from the replaced one=${seen !== player}, the event's instance is the " +
                 "one the game returned=${seen === returned}, the old handle now reads removed=${player.isRemoved}",
         )
+        // A mod keeps player handles across a respawn — from a join event, a saved home, a command source — and
+        // the leg below asks the one the game replaced, which is a player the game has let go.
+        replacedHandle = player
+        return true
+    }
+
+    /**
+     * A handle the game replaced — by a death, a respawn — is a player the game has let go: the move is
+     * refused, and the one standing in the world stays exactly where they are. Reaching them means addressing
+     * the server's live counterpart by the uuid, which is what a mod that keeps a player around has to do.
+     */
+    private fun driveTeleportAfterRespawn(): Boolean {
+        val old = replacedHandle ?: return false
+        val live = OMLGame.server?.getPlayerList()?.getPlayer(old.uuid) ?: return false
+        val at = live.blockPosition()
+        val asked = old.teleport(at.x + 3.5, at.y + 0.1, at.z + 0.5)
+        val now = live.blockPosition()
+        E2E.check(
+            "api.player_teleport_replaced_handle",
+            old.isRemoved && !asked && now == at,
+            "the replaced handle reads removed=${old.isRemoved}, asking it answered $asked, the live player " +
+                "stood at $at and now reads $now",
+        )
+        replacedHandle = null
         return true
     }
 
