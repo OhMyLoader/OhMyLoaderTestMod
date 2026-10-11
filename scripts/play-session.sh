@@ -95,6 +95,10 @@ shot
 say '/kit give' 4
 say '/kit wear' 4
 say '/kit probe' 6
+say '/kit tabs' 4                             # what the game's creative tab registry actually holds
+say '/kit creative' 4
+press e 6                                     # the creative book: the screen mod content has to reach
+shot
 say '/kit anchor here' 4                            # a waystone is not placed yet: the anchor is the test
 say '/kit mob cow 2' 5
 say '/kit zap cow' 4
