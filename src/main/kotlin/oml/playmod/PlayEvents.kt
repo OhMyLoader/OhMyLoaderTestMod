@@ -154,7 +154,7 @@ object PlayEvents {
         }
         Events.ENTITY_INTERACT.register { event ->
             // A kit-boosted player greets what they pet; the greeting is the visible half of the effect.
-            if (event.player.hasEffect("minecraft:night_vision")) {
+            if (event.player.hasEffect("minecraft:slow_falling")) {
                 event.player.playSound("minecraft:entity.cat.purr", 0.6f, 1.0f)
             }
         }
