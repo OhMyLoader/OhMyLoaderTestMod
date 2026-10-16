@@ -185,8 +185,11 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider, OM
             E2E.expect(
                 "merge.shadow_this", "merge.ctor_init",
                 "inject.access_widening",
+                // run_tick.cancel fires on the 600th runTick call, so expecting it makes READY wait for
+                // those frames; the wait is bounded by graceSeconds in wall-clock terms and 600 frames fit
+                // inside it even at the ~20fps a software-rendered runner manages.
                 "mixin.ctor_head", "mixin.run_tick.head", "mixin.run_tick.capture",
-                "mixin.run_tick.return_ordinal",
+                "mixin.run_tick.return_ordinal", "mixin.run_tick.cancel",
                 "mixin.frame_limit.tail", "mixin.frame_limit.head",
                 "mixin.modify_constant", "mixin.modify_return_value", "mixin.modify_expression_value",
                 "pack.byid.blockstate", "pack.byid.model", "pack.byid.item_def", "pack.byid.texture",
