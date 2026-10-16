@@ -18,6 +18,16 @@ kotlin {
     jvmToolchain(27)
 }
 
+// The verdict's own rules — what counts as a PASS — are testable without a game, and a real boot
+// cannot show them failing without already being red for that reason. This is the fast proof.
+dependencies {
+    testImplementation(kotlin("test"))
+}
+
+tasks.withType<Test>().configureEach {
+    useJUnitPlatform()
+}
+
 // The pin must match the version the loader was published with; a mismatch fails resolution with
 // a clear "could not find" instead of silently resolving to whatever is newest.
 val omlVersion = providers.gradleProperty("oml_version").getOrElse("0.1.0-SNAPSHOT")

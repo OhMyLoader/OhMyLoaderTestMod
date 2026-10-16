@@ -174,7 +174,7 @@ object E2E {
     private fun missingExpected(): List<String> = synchronized(lock) { expected.filter { it !in observed } }
 
     /** Prints the failure list and the verdict; returns the failure count. */
-    private fun report(): Int {
+    internal fun report(): Int {
         val missing: List<String>
         val failed: List<String>
         val checks: Int
@@ -227,4 +227,12 @@ object E2E {
 
     /** A dedicated server never boots a client, so the game's own client instance is the side test. */
     private fun isServerSide(): Boolean = OMLGame.client == null
+
+    /** Test hook: forget every declaration and observation, so each case starts from an empty verdict. */
+    internal fun resetForTests() {
+        synchronized(lock) {
+            expected.clear()
+            observed.clear()
+        }
+    }
 }
