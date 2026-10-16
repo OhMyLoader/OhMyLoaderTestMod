@@ -1,0 +1,10 @@
+# The gate scripts in scripts/ run on Linux runners, where a CRLF shebang is "bad interpreter", and the
+# mod sources are LF. A contributor whose git has core.autocrlf=true would otherwise hand both to the
+# repository with CRLF. Only the listed types are touched — nothing is renormalized wholesale.
+*.kt text eol=lf
+*.kts text eol=lf
+*.toml text eol=lf
+gradlew text eol=lf
+*.sh text eol=lf
+*.bat text eol=crlf
+*.cmd text eol=crlf
