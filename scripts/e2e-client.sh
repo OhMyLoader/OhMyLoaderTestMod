@@ -29,16 +29,17 @@ mkdir -p "$(dirname "$LOG")"
 
 if [ ! -d "$WORLD_DIR" ]; then
   echo "e2e-client: no save at $WORLD_DIR — generating one with a server boot"
-  if ! OML_E2E_LOG="${LOG%.log}-worldgen.log" ./scripts/e2e-server.sh; then
-    echo "e2e-client: world generation failed"
-    exit 1
-  fi
+  # What this boot owes this script is a save directory: the server gate's verdict and exit code belong
+  # to the server job, so a red code here must not read as "no world was generated".
+  OML_E2E_LOG="${LOG%.log}-worldgen.log" ./scripts/e2e-server.sh ||
+    echo "e2e-client: the world-generation boot exited non-zero (the server job reports its verdict)"
   mkdir -p "$(dirname "$WORLD_DIR")"
   cp -r run/server/world "$WORLD_DIR"
   # The script runs without `set -e`: a failed copy must not turn into the silent shape of "the
   # client boots, quickPlay finds no save, lands on the title screen, world_load never reports".
   if [ ! -f "$WORLD_DIR/level.dat" ]; then
     echo "e2e-client: world copy incomplete — no level.dat in $WORLD_DIR"
+    tail -40 "${LOG%.log}-worldgen.log" 2>/dev/null
     exit 1
   fi
 fi
