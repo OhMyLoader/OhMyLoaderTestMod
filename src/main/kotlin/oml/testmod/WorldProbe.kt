@@ -19,6 +19,7 @@ import net.minecraft.server.permissions.LevelBasedPermissionSet
 import net.minecraft.server.permissions.PermissionSet
 import net.minecraft.server.permissions.Permissions
 import net.minecraft.world.phys.Vec3
+import java.util.Collections
 import java.util.Optional
 import net.minecraft.world.Container
 import net.minecraft.world.level.ChunkPos
@@ -636,24 +637,49 @@ object WorldProbe {
      * Runs one probe once, and only once it has reported. `false` means a precondition is not there yet
      * (the level not loaded, the chunk not sent), so the step is retried; a throw and a stale precondition
      * are both verdicts, so a defect produces a red line rather than silence.
+     *
+     * A probe's force-load tickets are released when it finishes, whichever way it finished: a FORCED
+     * ticket is written into the save, so a leak on a timeout or a throw changes the terrain the next run
+     * reads — which is how a local re-run stops reproducing a CI failure.
      */
     private fun step(name: String, body: () -> Boolean) {
         if (name in reported) return
         val verdict = runCatching(body)
         verdict.onFailure {
             reported += name
+            releaseTickets()
             E2E.check(name, false, "driving threw ${it.javaClass.simpleName}: ${it.message}")
             return
         }
         if (verdict.getOrDefault(false)) {
             reported += name
+            releaseTickets()
             return
         }
         val ticks = (waited[name] ?: 0) + 1
         waited[name] = ticks
         if (ticks > GIVE_UP_TICKS) {
             reported += name
+            releaseTickets()
             E2E.check(name, false, "precondition still unmet after $ticks ticks")
+        }
+    }
+
+    /** `<dimension id> to <position>` for every chunk this probe force-loaded since it last finished. */
+    private val heldTickets: MutableSet<Pair<String, BlockPos>> =
+        java.util.Collections.synchronizedSet(LinkedHashSet())
+
+    /**
+     * Releases and forgets the tickets [heldTickets] carries. Idempotent: releasing a column a probe already
+     * gave back itself answers false and changes nothing.
+     */
+    private fun releaseTickets() {
+        val pending = heldTickets.toList()
+        heldTickets.clear()
+        if (pending.isEmpty()) return
+        val server = OMLGame.server ?: return
+        pending.forEach { (dimensionId, position) ->
+            server.levelById(dimensionId)?.releaseForceLoadedChunk(position)
         }
     }
 
@@ -1238,6 +1264,7 @@ object WorldProbe {
     private fun chunkReady(server: MinecraftServer, dimensionId: String, position: BlockPos): Boolean {
         val level = server.levelById(dimensionId) ?: return false
         level.forceLoadChunk(position)
+        heldTickets += dimensionId to position
         return tickingKey(dimensionId, ChunkPos.containing(position)) in tickingChunks
     }
 
