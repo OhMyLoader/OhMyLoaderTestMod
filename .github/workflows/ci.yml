@@ -56,6 +56,13 @@ jobs:
             gradle-build-cache-${{ runner.os }}-
       - run: ./gradlew -p OhMyLoader publishToMavenLocal
       - run: ./gradlew -p OhMyLoaderGradle publishToMavenLocal
+      # The game classes reach the compile classpath as files under run/26.3, and that collection is
+      # read once — before this job's own fetch task has put anything on disk. Measured on a clean
+      # copy: the fetch tasks run and complete first, resolving compileClasspath afterwards lists the
+      # client jar and 78 library jars, yet compileKotlin still sees no net.minecraft.*; the next
+      # invocation, with run/ present, compiles. The E2E jobs dodge it because the game-files cache
+      # restores run/26.3 before Gradle configures. So fetch first, then build.
+      - run: ./gradlew fetchClientJar fetchLibraries
       - run: ./gradlew build
 
   # The gate the build job cannot be: it actually launches the game. Both E2E jobs start the same way
