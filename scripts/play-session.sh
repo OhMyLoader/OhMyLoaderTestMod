@@ -45,7 +45,8 @@ GRADLE_PID=$!
 trap 'kill -TERM -- "-$GRADLE_PID" 2>/dev/null || kill -TERM "$GRADLE_PID" 2>/dev/null' EXIT
 
 echo "waiting for the kit's own join line in $LOG…"
-deadline=$((SECONDS + 300))
+GREET_TIMEOUT=300
+deadline=$((SECONDS + GREET_TIMEOUT))
 while ! grep -q 'kit: claim a waystone' "$LOG" 2>/dev/null; do
   if grep -q '\[OML-E2E\]' "$LOG" 2>/dev/null; then
     echo "the E2E probes are running in this session, so the world is not the mod's to play in"; exit 1
@@ -54,7 +55,7 @@ while ! grep -q 'kit: claim a waystone' "$LOG" 2>/dev/null; do
     echo "the client exited before the kit greeted the player"; tail -40 "$LOG"; exit 1
   fi
   if [ "$SECONDS" -ge "$deadline" ]; then
-    echo "no greeting within ${deadline}s"; tail -40 "$LOG"; exit 1
+    echo "no greeting within ${GREET_TIMEOUT}s"; tail -40 "$LOG"; exit 1
   fi
   sleep 2
 done
@@ -152,11 +153,17 @@ say '/stop' 20
 for _ in $(seq 1 10); do kill -0 "$GRADLE_PID" 2>/dev/null || break; sleep 3; done
 kill -TERM -- "-$GRADLE_PID" 2>/dev/null
 wait "$GRADLE_PID" 2>/dev/null
-rc=0
+rc=$?
+# The session always ends by killing the client (the /stop above is refused in a world without cheats),
+# so a non-zero status here is expected. Report it rather than hiding it: an early crash would print the
+# same line, and the tail above is what tells the two apart.
+[ "$rc" -ne 0 ] && echo "client ended with status $rc (expected: the scripted kill at the end of the session)"
 
 echo "---------------------------------------------------------------"
 echo "session log: $LOG"
 echo "screenshots: $(ls -1 "$SHOTS" 2>/dev/null | tr '\n' ' ')"
 echo "kit lines:"
 grep -E '\[oml_playmod\]|\[kit\]|kit:' "$LOG" | tail -30
-exit $rc
+# The session's own verdict is "every scripted step ran": the failure paths above exit 1, and reaching here
+# means they did not. The client's status cannot be that verdict — this script ends it with a kill.
+exit 0

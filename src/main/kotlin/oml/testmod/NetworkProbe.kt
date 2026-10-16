@@ -49,8 +49,12 @@ object NetworkProbe {
     @Volatile
     private var inWorld = false
 
+    /** Ticks spent waiting for the pong, and the one-shot guard on reporting the wait as a failure. */
     @Volatile
-    private var sendAttempts = 0
+    private var roundTripWaits = 0
+
+    @Volatile
+    private var roundTripGaveUp = false
 
     @Volatile
     private var serverProbed = false
@@ -85,19 +89,20 @@ object NetworkProbe {
         inWorld = true
     }
 
-    /** Retries until the connection accepts the send; a window that closes without one is the failure. */
+    /** Retries until the echo comes back; a wait that closes without one is the failure. */
     fun tickClientSide() {
-        if (echoed || !inWorld) return
+        if (echoed || !inWorld || roundTripGaveUp) return
         val outcome = runCatching { OMLNetwork.sendToServer(PING, Ping(nonce, LABEL)) }
-        if (outcome.isSuccess) return
-        sendAttempts++
-        if (sendAttempts >= 200) {
-            E2E.check(
-                "network.round_trip",
-                false,
-                "no client-to-server path after 200 ticks: ${outcome.exceptionOrNull()}",
-            )
-        }
+        // Counted per tick waited, not per rejected send: a send the connection accepts but a pong that
+        // never arrives would otherwise retry for the whole grace window and report nothing at all.
+        if (++roundTripWaits < 200) return
+        roundTripGaveUp = true
+        E2E.check(
+            "network.round_trip",
+            false,
+            "no pong after $roundTripWaits ticks; last send " +
+                (outcome.exceptionOrNull()?.let { "${it.javaClass.simpleName}: ${it.message}" } ?: "accepted"),
+        )
     }
 
     /** Server side. A name that matches nobody is a warning, not an exception — the check asserts that. */

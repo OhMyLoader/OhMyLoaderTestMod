@@ -549,15 +549,15 @@ object WorldProbe {
 
     /** Client-side pass. */
     fun tickClient() = guard {
-        probeClientHandle()
-        tickScheduler(clientRun)
+        head("api.client_handle") { probeClientHandle() }
+        head("scheduler.client_task") { tickScheduler(clientRun) }
         step("api.world_block_read") { probeClientWorldRead() }
     }
 
     /** Server-side pass, dedicated or integrated. */
     fun tickServer() = guard {
-        probeServerHandle()
-        tickScheduler(serverRun)
+        head("api.server_handle") { probeServerHandle() }
+        head("scheduler.server_task") { tickScheduler(serverRun) }
         step("api.server_level_lookup") { probeLevelLookup() }
         step("api.registry_reads") { probeRegistries() }
         // None of these need a player, so they also run on the headless dedicated-server gate.
@@ -625,6 +625,17 @@ object WorldProbe {
     /** These run inside the game's tick dispatch, so a throw here would otherwise stop the game loop. */
     private inline fun guard(body: () -> Unit) {
         runCatching(body).onFailure { println("[oml_testmod] world probe interrupted: $it") }
+    }
+
+    /**
+     * Drives one head-of-pass call and reports a throw under the check it stands in for. [guard] swallows a
+     * throw for the whole pass, so a head call that fails every tick would leave every step below it
+     * unreported — a verdict of dozens of "never reported" that names none of them as the cause.
+     */
+    private inline fun head(name: String, body: () -> Unit) {
+        runCatching(body).onFailure {
+            E2E.check(name, false, "interrupted ${it.javaClass.simpleName}: ${it.message}")
+        }
     }
 
     /** Fed by the mod's ChatReceivedEvent handler: delivery is what proves the send. */
