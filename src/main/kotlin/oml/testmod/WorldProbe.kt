@@ -2983,12 +2983,12 @@ object WorldProbe {
     }
 
     /**
-     * [count] positions to place blocks in: air with solid ground under it, walked outward along x from the
-     * player on both sides. The block that was there comes back with each one, so a probe restores what it
-     * found instead of leaving terrain behind. Searching rather than guessing matters: one column over can
-     * be a ledge with nothing under it for eight blocks, and a probe that gives up on that reports a missing
-     * spot instead of a missing API. Columns are skipped at the player's own position, so placing a block
-     * never puts one inside the player.
+     * [count] positions to place blocks in: a cleared position with solid ground under it, walked outward
+     * along x from the player on both sides. The block that was there comes back with each one, so a probe
+     * restores what it found instead of leaving terrain behind. Searching rather than guessing matters: one
+     * column over can be a ledge with nothing under it for eight blocks, and a probe that gives up on that
+     * reports a missing spot instead of a missing API. Columns are skipped at the player's own position, so
+     * placing a block never puts one inside the player.
      */
     private fun airPockets(
         world: Level,
@@ -3003,7 +3003,11 @@ object WorldProbe {
                 val ground = firstSolid(world, BlockPos(feet.x + step, feet.y - 1, feet.z), 8) ?: continue
                 val pos = BlockPos(ground.x, ground.y + 1, ground.z)
                 val original = world.blockStateAt(pos) ?: continue
-                if (original.blockId == AIR && found.none { it.first == pos }) found += pos to original
+                if (found.any { it.first == pos }) continue
+                // The pocket is cleared, not waited for: a grass tuft or a leaf is a block rather than air,
+                // so demanding that the terrain hand over a free column inside the search range makes the
+                // precondition a seed lottery. The caller restores whatever stood here.
+                if (original.blockId == AIR || world.setBlockAt(pos, AIR)) found += pos to original
             }
             offset++
         }
