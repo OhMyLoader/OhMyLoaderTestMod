@@ -261,7 +261,8 @@ object WorldProbe {
      */
     private const val WEATHER_RAMP_WAIT_TICKS = 250
 
-    /** How long the storm phase is asked to hold, comfortably past the wait it has to survive. */
+    /** How long each [WEATHER_DRIVE] phase asks the game to hold the state, comfortably past the ramp
+     * wait it has to survive. A zero hands the timer to the game's own sampling. */
     private const val WEATHER_HOLD_TICKS = 600
 
     /** The weather states the probe drives in order: a known-clear start, the storm, then clear again. */
@@ -851,8 +852,11 @@ object WorldProbe {
         }
         val (raining, thundering) = WEATHER_DRIVE[weatherPhase]
         if (!weatherWritten) {
-            val hold = if (raining) WEATHER_HOLD_TICKS else 0
-            if (!world.setWeather(raining = raining, thundering = thundering, durationTicks = hold)) return false
+            // Every phase asks the game to hold its state, the clear ones included: a zero duration leaves
+            // the weather timer at zero, and the game then samples its own duration on the next weather
+            // tick — a quarter chance of starting to rain inside the phase whose assertion is that it
+            // stayed clear.
+            if (!world.setWeather(raining = raining, thundering = thundering, durationTicks = WEATHER_HOLD_TICKS)) return false
             weatherWritten = true
             return false
         }
