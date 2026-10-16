@@ -57,7 +57,13 @@ object E2E {
 
     /** Records one probe's outcome. Printed only when it went wrong, so a green run stays readable. */
     fun check(name: String, ok: Boolean, detail: String = "") {
-        synchronized(lock) { observed[name] = ok to detail }
+        // A failure is sticky. A later `true` under the same name is a different moment, not a
+        // retraction, and overwriting with it would erase the one thing this gate exists to catch (the
+        // broadcast probe reports a throw and then the delivery, both under one name).
+        synchronized(lock) {
+            if (!(observed[name]?.first ?: true) && ok) return
+            observed[name] = ok to detail
+        }
         if (!ok) {
             println("$PREFIX observed failure: $name${if (detail.isEmpty()) "" else " ($detail)"}")
         }
@@ -172,17 +178,24 @@ object E2E {
         val missing: List<String>
         val failed: List<String>
         val checks: Int
+        val nothingExpected: Boolean
         synchronized(lock) {
             missing = expected.filter { it !in observed }
             failed = observed.filterValues { !it.first }.keys.toList()
             checks = observed.size
+            nothingExpected = expected.isEmpty()
         }
+        // A run that declared nothing verified nothing. The loader catches every mod-initializer
+        // throwable and keeps booting, so a probe set that died during registration would otherwise
+        // leave an empty expectation list and print PASS over an empty suite — the expectations are
+        // declared after registration, so their absence is the only signal that it failed.
+        if (nothingExpected) emit("$PREFIX FAILED gate.expectations_declared (no expectation was declared — the probe set never registered)")
         for (name in missing) emit("$PREFIX FAILED $name (never reported)")
         for (name in failed) {
             val detail = synchronized(lock) { observed[name]?.second }.orEmpty()
             emit("$PREFIX FAILED $name (${detail.ifEmpty { "failed" }})")
         }
-        val failures = missing.size + failed.size
+        val failures = missing.size + failed.size + if (nothingExpected) 1 else 0
         emit("$PREFIX RESULT ${if (failures == 0) "PASS" else "FAIL"} checks=$checks failures=$failures")
         return failures
     }
