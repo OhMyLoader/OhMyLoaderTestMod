@@ -8,7 +8,8 @@
 # Env: OML_E2E_TICKS (default 200), OML_E2E_READY_TIMEOUT (240s), OML_E2E_STOP_TIMEOUT (60s),
 #      OML_E2E_LOG (build/e2e-server.log), OML_E2E_WATCHDOG (300s, the in-game watchdog that turns
 #      a session that never finishes into a FAIL instead of a hang), OML_E2E_GRACE_SECONDS,
-#      OML_E2E_EXPECT_EXTRA (gate self-test: an expectation nothing reports, so a working gate must fail).
+#      OML_E2E_EXPECT_EXTRA (gate self-test: an expectation nothing reports, so a working gate must fail),
+#      OML_E2E_SEED (oml-e2e, the world seed a generated world is created from).
 set -uo pipefail
 cd "$(dirname "$0")/.."
 
@@ -21,6 +22,19 @@ E2E_ARGS=(-Poml.e2e.ticks="$TICKS" -Poml.e2e.timeoutSeconds="${OML_E2E_WATCHDOG:
 [ -n "${OML_E2E_EXPECT_EXTRA:-}" ] && E2E_ARGS+=(-Poml.e2e.expectExtra="$OML_E2E_EXPECT_EXTRA")
 [ -n "${OML_LOG_FILE:-}" ] && E2E_ARGS+=(-Poml.log.file="$OML_LOG_FILE")
 mkdir -p "$(dirname "$LOG")"
+
+# Several preconditions read the terrain the game generates (a solid column with a free block above it
+# near the player, a run of open air for a launch). A fresh CI job generates a fresh world, so those
+# checks would otherwise be a draw from a seed distribution; one fixed seed makes the generated terrain
+# the same run to run, which also makes a red reproducible. It applies where a world is *created* — an
+# existing run/server/world keeps the seed it was made with, so delete that directory to re-roll.
+SERVER_PROPERTIES="run/server/server.properties"
+mkdir -p run/server
+if grep -q '^level-seed=' "$SERVER_PROPERTIES" 2>/dev/null; then
+  echo "e2e-server: keeping the level-seed already in $SERVER_PROPERTIES"
+else
+  printf 'level-seed=%s\n' "${OML_E2E_SEED:-oml-e2e}" >> "$SERVER_PROPERTIES"
+fi
 
 FIFO="$(mktemp -u)"
 mkfifo "$FIFO"
