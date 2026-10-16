@@ -19,7 +19,6 @@ import net.minecraft.server.permissions.LevelBasedPermissionSet
 import net.minecraft.server.permissions.PermissionSet
 import net.minecraft.server.permissions.Permissions
 import net.minecraft.world.phys.Vec3
-import java.util.Collections
 import java.util.Optional
 import net.minecraft.world.Container
 import net.minecraft.world.level.ChunkPos
@@ -649,44 +648,53 @@ object WorldProbe {
      * (the level not loaded, the chunk not sent), so the step is retried; a throw and a stale precondition
      * are both verdicts, so a defect produces a red line rather than silence.
      *
-     * A probe's force-load tickets are released when it finishes, whichever way it finished: a FORCED
-     * ticket is written into the save, so a leak on a timeout or a throw changes the terrain the next run
-     * reads — which is how a local re-run stops reproducing a CI failure.
+     * The tickets that probe force-loaded are released when it finishes, whichever way it finished: a
+     * FORCED ticket is written into the save, so a leak on a timeout or a throw changes the terrain the
+     * next run reads. Only that probe's own — releasing a column a step below is still standing on makes
+     * the chunk eligible to unload mid-read.
      */
     private fun step(name: String, body: () -> Boolean) {
         if (name in reported) return
-        val verdict = runCatching(body)
+        val previousOwner = ticketOwner
+        ticketOwner = name
+        val verdict = try {
+            runCatching(body)
+        } finally {
+            ticketOwner = previousOwner
+        }
         verdict.onFailure {
             reported += name
-            releaseTickets()
+            releaseTickets(name)
             E2E.check(name, false, "driving threw ${it.javaClass.simpleName}: ${it.message}")
             return
         }
         if (verdict.getOrDefault(false)) {
             reported += name
-            releaseTickets()
+            releaseTickets(name)
             return
         }
         val ticks = (waited[name] ?: 0) + 1
         waited[name] = ticks
         if (ticks > GIVE_UP_TICKS) {
             reported += name
-            releaseTickets()
+            releaseTickets(name)
             E2E.check(name, false, "precondition still unmet after $ticks ticks")
         }
     }
 
-    /** `<dimension id> to <position>` for every chunk this probe force-loaded since it last finished. */
-    private val heldTickets: MutableSet<Pair<String, BlockPos>> =
-        java.util.Collections.synchronizedSet(LinkedHashSet())
+    /** The step being driven right now; [chunkReady] attributes the tickets it takes to it. The client and
+     * integrated-server drivers can be in different steps at the same moment, so a name may be mis-
+     * attributed — that leaks a ticket or releases one twice, both harmless next to unloading a column
+     * underneath a running probe. */
+    private var ticketOwner = ""
 
-    /**
-     * Releases and forgets the tickets [heldTickets] carries. Idempotent: releasing a column a probe already
-     * gave back itself answers false and changes nothing.
-     */
-    private fun releaseTickets() {
-        val pending = heldTickets.toList()
-        heldTickets.clear()
+    /** `<dimension id> to <position>` per driving step. */
+    private val heldTickets =
+        java.util.concurrent.ConcurrentHashMap<String, MutableSet<Pair<String, BlockPos>>>()
+
+    /** Releases and forgets [owner]'s tickets. Idempotent: a column already given back answers false. */
+    private fun releaseTickets(owner: String) {
+        val pending = heldTickets.remove(owner)?.toList().orEmpty()
         if (pending.isEmpty()) return
         val server = OMLGame.server ?: return
         pending.forEach { (dimensionId, position) ->
@@ -1275,7 +1283,9 @@ object WorldProbe {
     private fun chunkReady(server: MinecraftServer, dimensionId: String, position: BlockPos): Boolean {
         val level = server.levelById(dimensionId) ?: return false
         level.forceLoadChunk(position)
-        heldTickets += dimensionId to position
+        heldTickets.getOrPut(ticketOwner) {
+            java.util.Collections.synchronizedSet(LinkedHashSet())
+        } += dimensionId to position
         return tickingKey(dimensionId, ChunkPos.containing(position)) in tickingChunks
     }
 
