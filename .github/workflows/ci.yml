@@ -111,15 +111,28 @@ jobs:
             echo "::error::the E2E gate passed a run that was supposed to fail"
             exit 1
           fi
-          echo "gate self-test passed (the run failed as it must)"
+          # A red exit alone is not proof: a crash, a resolution failure or a build problem exits 1 as
+          # well, and this job once went red on every run for a reason unrelated to the gate. The
+          # self-test counts only when the log names the expectation nothing reported.
+          grep -E '\[OML-E2E\] FAILED gate\.self-test\.never-reported \(never reported\)' \
+            build/e2e-server-selftest.log
+          grep -E '\[OML-E2E\] RESULT FAIL' build/e2e-server-selftest.log
+          echo "gate self-test passed (the gate reported the expectation nothing reported)"
       - name: Server end-to-end
+        env:
+          # OML's console mirror (-Doml.log.file) has no other caller in CI; without this step the
+          # shipped feature never runs. The artifact below requires the file, so a mirror that wrote
+          # nothing is red rather than an absent attachment.
+          OML_LOG_FILE: logs/oml-console.log
         run: ./scripts/e2e-server.sh
       - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: e2e-server-logs
-          path: build/e2e-server*.log
-          if-no-files-found: ignore
+          path: |
+            build/e2e-server*.log
+            run/server/logs/oml-console.log
+          if-no-files-found: error
 
   e2e-client:
     runs-on: ubuntu-latest
