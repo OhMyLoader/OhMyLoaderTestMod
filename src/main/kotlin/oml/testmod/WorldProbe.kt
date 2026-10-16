@@ -203,6 +203,9 @@ object WorldProbe {
     private const val CHUNK_PROBE_BLOCK = "minecraft:stone"
     private const val CHUNK_TICK_WAIT_LIMIT = 60
 
+    /** How long the destination's id table may take to answer for a teleported entity. */
+    private const val ENTITY_ARRIVAL_WAIT_TICKS = 20
+
 
     /** Outside the game's own `/time rate` window, so OML has to refuse it rather than store it. */
     private const val FAST_RATE = 2f
@@ -1220,6 +1223,7 @@ object WorldProbe {
     private var pressDataIdentity = false
     private var teleportCow: LivingEntity? = null
     private var teleportMoved: Entity? = null
+    private var teleportArrived = false
 
     /**
      * Force-loads the probe column of [dimensionId] and answers only once the game has it **ticking**: a chunk
@@ -1265,13 +1269,18 @@ object WorldProbe {
             }
             teleportCow = cow
             teleportMoved = cow.teleportToLevel(MOD_DIMENSION_B, TELEPORT_X, TELEPORT_Y, TELEPORT_Z)
+            teleportTick = server.tickCount
             teleportPhase = 1
             return false
         }
         if (teleportPhase == 1) {
-            // The copy the game made on the way in is tracked by the destination's section storage, which is
-            // only settled after the tick it arrived in — reading the list in the same tick answers for a level
-            // that does not know it yet, so the probe gives the game one tick and then asks.
+            // The destination's section storage queues this arrival and drains it later in the tick, while
+            // the probe reads at the head of tickServer: the id table answers for the moved entity only
+            // after that drain. Waiting for the answer is the assertion — an entity that never arrives is
+            // a defect, reported within the run rather than as a hung one.
+            val pending = teleportMoved
+            teleportArrived = pending != null && b.getEntity(pending.id) === pending
+            if (!teleportArrived && server.tickCount - teleportTick < ENTITY_ARRIVAL_WAIT_TICKS) return false
             teleportPhase = 2
             return false
         }
@@ -1287,12 +1296,19 @@ object WorldProbe {
                 ),
             "the game still holds it" to (moved != null && !moved.isRemoved),
             "the first level let the original go" to (a.getEntity(cow.id) == null),
-            "the second level holds the moved one" to (moved != null && b.getEntity(moved.id) === moved),
+            "the second level holds the moved one" to teleportArrived,
             "an unloaded destination is refused" to (refused == null && moved?.level() === b),
             "the two types still disagree about their clock" to (
                 a.clock?.getRegisteredName() == MOD_CLOCK && b.clock == null
                 ),
         )
+        // Taken before the teardown: after `discard()` and the two releases the destination holds nothing,
+        // so an empty bEntities / null byId there would describe the cleanup instead of the failure.
+        val seen = "moved=${moved?.dimensionId} refused=$refused " +
+            "aClock=${a.clock?.getRegisteredName()} bClock=${b.clock?.getRegisteredName()} " +
+            "bEntities=${b.entities().size} byId=${moved?.let { b.getEntity(it.id) }} " +
+            "pos=${moved?.blockPosition()} fell=${moved?.position()} " +
+            "byUuid=${moved?.let { b.getEntityInAnyDimension(it.uuid) }}"
         val back = moved?.teleportToLevel(MOD_DIMENSION, TELEPORT_X, TELEPORT_Y, TELEPORT_Z)
         (back ?: moved ?: cow as Entity).discard()
         a.releaseForceLoadedChunk(TELEPORT_POSITION)
@@ -1300,16 +1316,13 @@ object WorldProbe {
         E2E.check(
             "api.dimension_teleport",
             flags.all { it.second } && back?.dimensionId == MOD_DIMENSION,
-            "${flags.filterNot { it.second }.map { it.first }} failed of ${flags.size}; moved=" +
-                "${moved?.dimensionId} refused=$refused back=${back?.dimensionId} " +
-                "aClock=${a.clock?.getRegisteredName()} bClock=${b.clock?.getRegisteredName()} " +
-                "bEntities=${b.entities().size} byId=${moved?.let { b.getEntity(it.id) }} " +
-                "pos=${moved?.blockPosition()} fell=${moved?.position()} cowRemoved=${cow.isRemoved} " +
-                "byUuid=${moved?.let { b.getEntityInAnyDimension(it.uuid) }}",
+            "${flags.filterNot { it.second }.map { it.first }} failed of ${flags.size}; $seen " +
+                "back=${back?.dimensionId} cowRemoved=${cow.isRemoved}",
         )
         teleportPhase = 3
         teleportCow = null
         teleportMoved = null
+        teleportArrived = false
         return true
     }
 
