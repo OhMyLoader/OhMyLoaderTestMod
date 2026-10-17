@@ -197,7 +197,7 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider, OM
                 "pack.dir.blockstates", "pack.dir.models_block", "pack.dir.items",
                 "pack.dir.textures_block", "pack.dir.textures_particle", "pack.dir.lang",
                 "keybind.registered", "creative.tab_registered",
-                "api.client_handle", "scheduler.client_task",
+                "scheduler.client_task",
             )
             // AC-1 includes joining a world, and the run says whether it was asked to: the harness
             // cannot create one, so it only expects the join when it arranged for a save to exist.
@@ -212,6 +212,8 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider, OM
                     "event.server_started", "event.player_joined",
                     "api.server_handle", "api.server_level_lookup", "api.registry_reads",
                     "api.player_handle", "api.player_inventory", "api.give_item", "api.inventory_remove",
+                    // The client handle's claim only holds once the client owns a world (see WorldProbe).
+                    "api.client_handle",
                     "api.world_block_read", "api.world_block_write", "api.world_is_loaded",
                     "api.player_effects", "api.player_heal", "api.player_sound", "api.world_sound",
                     "api.player_permissions", "api.player_teleport",

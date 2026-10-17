@@ -735,19 +735,23 @@ object WorldProbe {
 
     private var clientHandleProbed = false
 
+    /** The client handle, read while the client owns a world: on the title screen its player and level
+     * are both null, and "the two halves agree that there is nothing" proves nothing about the handle. */
     private fun probeClientHandle() {
         if (clientHandleProbed) return
         val client = OMLGame.client ?: return
         val width = client.scaledWidth
         val height = client.scaledHeight
         if (width <= 0 || height <= 0) return
+        val level = client.level ?: return
+        val player = client.player ?: return
         clientHandleProbed = true
         E2E.check(
             "api.client_handle",
-            (client.player == null) == (client.level == null),
+            player.level() === level,
             "gui=${width}x$height screen=${client.currentScreen?.javaClass?.simpleName ?: "none"} " +
-                "player=${client.player?.scoreboardName ?: "none"} " +
-                "world=${client.level?.dimensionId ?: "none"}",
+                "player=${player.scoreboardName} world=${level.dimensionId} " +
+                "playerLevel=${player.level() === level}",
         )
     }
 
@@ -1412,7 +1416,11 @@ object WorldProbe {
         val placed = level.setBlockAt(PRESS_POSITION, PRESS_BLOCK)
         val idAfterWrite = level.blockIdAt(PRESS_POSITION)
         val entity = level.blockEntityAt(PRESS_POSITION)
-        val unloaded = level.blockEntityAt(PRESS_POSITION.offset(4096, 0, 0))
+        val unloadedPos = PRESS_POSITION.offset(4096, 0, 0)
+        val unloaded = level.blockEntityAt(unloadedPos)
+        // "without loading it" is the half null alone cannot show — a read that loaded the chunk and found
+        // no block entity answers null too — so the position has to still be unloaded after the call.
+        val unloadedStillUnloaded = !level.isLoaded(unloadedPos)
         val removed = level.setBlockAt(PRESS_POSITION, "minecraft:air")
         val afterRemoval = level.blockEntityAt(PRESS_POSITION)
         val press = OMLRegistries.block(PRESS_BLOCK)
@@ -1422,7 +1430,7 @@ object WorldProbe {
             "it reports its own position and state" to (
                 entity?.blockPos == PRESS_POSITION && entity.blockState.block == press
                 ),
-            "an unloaded position answers null, without loading it" to (unloaded == null),
+            "an unloaded position answers null, without loading it" to (unloaded == null && unloadedStillUnloaded),
             "taking the block took the block entity too" to (removed && afterRemoval == null),
             "a press is not storage" to (entity as? Container == null),
         )
@@ -1431,7 +1439,9 @@ object WorldProbe {
             flags.all { it.second },
             "${flags.filterNot { it.second }.map { it.first }} failed of ${flags.size}; placed=$placed " +
                 "entity=${entity?.javaClass?.simpleName} pos=${entity?.blockPos} state=${entity?.blockState} " +
-                "unloadedAnswer=$unloaded afterRemoval=$afterRemoval removed=$removed " +
+                "unloadedAnswer=$unloaded at " +
+                "${if (level.isLoaded(unloadedPos)) "loaded" else "unloaded"} position " +
+                "afterRemoval=$afterRemoval removed=$removed " +
                 "idNow=${level.blockIdAt(PRESS_POSITION)}",
         )
         level.releaseForceLoadedChunk(PRESS_POSITION)
