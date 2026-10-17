@@ -3003,34 +3003,65 @@ object WorldProbe {
     /**
      * Live proof that the scheduler rides the game's own tick: a delayed task runs, a repeating one keeps
      * running, and a cancelled one stops. Bounded in ticks, like the API it exercises.
+     *
+     * Three further promises the API makes and only a live run can show: a task never runs earlier than
+     * the tick after it was queued; it always runs on the thread that ticks the side it was queued for
+     * (so the enqueue here happens on a throwaway thread, the documented use); and a task that throws is
+     * dropped without taking the queue with it — the thrower sits one tick ahead of the one-shot, and a
+     * one-shot that never arrives is this check failing.
      */
     private fun tickScheduler(run: SchedulerRun) {
         if (run.done) return
         if (!run.enqueued) {
             run.enqueued = true
-            OMLScheduler.schedule(run.side, delayTicks = 2) { run.oneShotRan = true }
+            run.enqueuedAt = run.advances
+            run.driverThread = Thread.currentThread().name
             var handle: OMLTask? = null
-            handle = OMLScheduler.repeat(run.side, intervalTicks = 2) {
-                run.repeatRuns++
-                if (run.repeatRuns == 3) handle?.cancel()
-            }
+            Thread {
+                run.callerThread = Thread.currentThread().name
+                OMLScheduler.schedule(run.side, delayTicks = 1) {
+                    error("oml-e2e deliberate throw — the queue is documented to survive it")
+                }
+                OMLScheduler.schedule(run.side, delayTicks = 2) {
+                    run.oneShotRan = true
+                    run.oneShotAt = run.advances
+                    run.bodyThread = Thread.currentThread().name
+                }
+                handle = OMLScheduler.repeat(run.side, intervalTicks = 2) {
+                    run.repeatRuns++
+                    if (run.repeatRuns == 3) handle?.cancel()
+                }
+            }.apply { name = "oml-e2e-off-thread"; isDaemon = true; start(); join() }
             return
         }
-        run.waited++
+        run.advances++
         if (run.repeatRuns >= 3) run.afterCancel++
         if (run.repeatRuns > 3) {
             run.done = true
             E2E.check(run.name, false, "the cancelled repeat kept running (${run.repeatRuns} times)")
         } else if (run.afterCancel >= 6) {
+            // One advance of slack either way: this counter and the queue's own tick advance inside the
+            // same game tick, and which comes first is not something the probe gets to choose.
+            val onTime = run.oneShotAt - run.enqueuedAt in 2..3
+            val onSideThread = run.bodyThread == run.driverThread && run.bodyThread != run.callerThread
             run.done = true
             E2E.check(
                 run.name,
-                run.oneShotRan && run.repeatRuns == 3,
-                "one-shot=${run.oneShotRan} repeat=${run.repeatRuns} waited=${run.waited} ticks",
+                run.oneShotRan && run.repeatRuns == 3 && onTime && onSideThread,
+                "one-shot=$run.oneShotRan after ${run.oneShotAt - run.enqueuedAt} advances " +
+                    "(queued at $run.enqueuedAt, ran at $run.oneShotAt — the contract is 2 or 3); " +
+                    "repeat=${run.repeatRuns} waited=${run.advances - run.enqueuedAt} ticks; " +
+                    "body thread '${run.bodyThread}' against the driver '${run.driverThread}' and the " +
+                    "enqueueing '${run.callerThread}'",
             )
-        } else if (run.waited > GIVE_UP_TICKS) {
+        } else if (run.advances - run.enqueuedAt > GIVE_UP_TICKS) {
             run.done = true
-            E2E.check(run.name, false, "gave up after ${run.waited} ticks: one-shot=${run.oneShotRan} repeat=${run.repeatRuns}")
+            E2E.check(
+                run.name,
+                false,
+                "gave up after ${run.advances - run.enqueuedAt} ticks: one-shot=${run.oneShotRan} " +
+                    "repeat=${run.repeatRuns}",
+            )
         }
     }
 
@@ -3040,7 +3071,12 @@ object WorldProbe {
         var oneShotRan = false
         var repeatRuns = 0
         var afterCancel = 0
-        var waited = 0
+        var advances = 0
+        var enqueuedAt = 0
+        var oneShotAt = 0
+        var driverThread = ""
+        var callerThread = ""
+        var bodyThread = ""
     }
 
     /** The first non-air position below [from], searching [depth] blocks down. */
