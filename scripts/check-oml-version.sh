@@ -7,7 +7,7 @@
 # Sibling checkouts are the CI layout — every job checks OhMyLoader and OhMyLoaderGradle out next to
 # this repo. Locally, a sibling that is not there is reported and skipped, not failed.
 set -uo pipefail
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/.." || exit
 
 # Java properties accept spaces around the `=`; whitespace is stripped before matching so the read
 # here agrees with what Gradle actually resolves.

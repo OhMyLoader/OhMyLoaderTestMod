@@ -7,15 +7,7 @@ import net.minecraft.world.entity.Entity
 import net.minecraft.world.entity.LivingEntity
 import net.minecraft.world.entity.player.Player
 import org.ohmyloader.api.content.OMLBlockTickEvent
-import org.ohmyloader.api26_3.applyEffect
-import org.ohmyloader.api26_3.blockDataAt
-import org.ohmyloader.api26_3.blockIdAt
-import org.ohmyloader.api26_3.dimensionId
-import org.ohmyloader.api26_3.playSoundAt
-import org.ohmyloader.api26_3.setRespawnAnchor
-import org.ohmyloader.api26_3.spawnDustParticles
-import org.ohmyloader.api26_3.spawnParticles
-import org.ohmyloader.api26_3.typeId
+import org.ohmyloader.api26_3.*
 
 /**
  * What the kit's blocks do. The `level` and `entity` a behavior hook hands over are the game's own objects, so

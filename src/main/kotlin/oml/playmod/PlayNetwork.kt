@@ -1,11 +1,6 @@
 package oml.playmod
 
-import net.minecraft.server.level.ServerLevel
-import org.ohmyloader.api.network.OMLNetwork
-import org.ohmyloader.api.network.OMLNetworkRegistry
-import org.ohmyloader.api.network.OMLPacketBuffer
-import org.ohmyloader.api.network.OMLPayloadCodec
-import org.ohmyloader.api.network.OMLPayloadType
+import org.ohmyloader.api.network.*
 import org.ohmyloader.api26_3.blockIdAt
 import org.ohmyloader.api26_3.dimensionId
 
@@ -64,8 +59,7 @@ object PlayNetwork {
                 return@clientToServer
             }
             val player = PlayLookups.playerByName(name) ?: return@clientToServer
-            val standing = (player.level() as? ServerLevel)
-                ?.let { it.blockIdAt(player.blockPosition().below()) } ?: "open air"
+            val standing = player.level().blockIdAt(player.blockPosition().below())
             val where = player.dimensionId + ":"
             OMLNetwork.sendToPlayer(
                 PANEL_REPLY,
@@ -107,8 +101,10 @@ object PlayNetwork {
     fun broadcastPanel(headline: String) {
         OMLNetwork.sendToAllPlayers(
             PANEL_REPLY,
-            Panel(headline, PlayState.padsFired.size, PlayState.serverTicks, PlayState.playersOnline,
-                false, PlayGallery.DIMENSION_ID, "no menu"),
+            Panel(
+                headline, PlayState.padsFired.size, PlayState.serverTicks, PlayState.playersOnline,
+                false, PlayGallery.DIMENSION_ID, "no menu",
+            ),
         )
     }
 }

@@ -1,9 +1,9 @@
 package oml.testmod
 
+import oml.testmod.E2E.quitClient
 import org.ohmyloader.api26_3.OMLGame
 import org.ohmyloader.api26_3.currentScreen
 import org.ohmyloader.api26_3.event.Events
-import oml.testmod.E2E.quitClient
 import java.io.FileDescriptor
 import java.io.FileOutputStream
 import java.io.PrintStream

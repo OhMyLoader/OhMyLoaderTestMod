@@ -1,5 +1,12 @@
 package oml.testmod
 
+import net.minecraft.client.gui.screens.BackupConfirmScreen
+import net.minecraft.core.component.DataComponentMap
+import net.minecraft.core.component.DataComponents
+import net.minecraft.core.registries.BuiltInRegistries
+import net.minecraft.core.registries.Registries
+import net.minecraft.resources.Identifier
+import net.minecraft.resources.ResourceKey
 import org.ohmyloader.api.Mod
 import org.ohmyloader.api.ModContext
 import org.ohmyloader.api.OMLModInitializer
@@ -9,18 +16,11 @@ import org.ohmyloader.api.command.OMLCommandProvider
 import org.ohmyloader.api.command.OMLCommandRegistry
 import org.ohmyloader.api.content.ContentRegistry
 import org.ohmyloader.api.content.OMLContentProvider
-import net.minecraft.client.gui.screens.BackupConfirmScreen
-import net.minecraft.core.registries.BuiltInRegistries
-import net.minecraft.core.registries.Registries
-import net.minecraft.core.component.DataComponentMap
-import net.minecraft.core.component.DataComponents
-import net.minecraft.resources.Identifier
-import net.minecraft.resources.ResourceKey
+import org.ohmyloader.api.network.OMLNetworkProvider
+import org.ohmyloader.api.network.OMLNetworkRegistry
 import org.ohmyloader.api26_3.OMLGame
 import org.ohmyloader.api26_3.currentScreen
 import org.ohmyloader.api26_3.event.Events
-import org.ohmyloader.api.network.OMLNetworkProvider
-import org.ohmyloader.api.network.OMLNetworkRegistry
 
 /**
  * The first end-to-end test mod written from a mod author's perspective using OML.
@@ -208,33 +208,78 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider, OM
                 // The rest of this list is the typed access surface and the interaction hooks: every
                 // entry needs a player inside a world, which is exactly what the join provides.
                 E2E.expect(
-                    "event.world_load", "network.server_received", "network.round_trip", "hud.rendered",
-                    "event.server_started", "event.player_joined",
-                    "api.server_handle", "api.server_level_lookup", "api.registry_reads",
-                    "api.player_handle", "api.player_inventory", "api.give_item", "api.inventory_remove",
+                    "event.world_load",
+                    "network.server_received",
+                    "network.round_trip",
+                    "hud.rendered",
+                    "event.server_started",
+                    "event.player_joined",
+                    "api.server_handle",
+                    "api.server_level_lookup",
+                    "api.registry_reads",
+                    "api.player_handle",
+                    "api.player_inventory",
+                    "api.give_item",
+                    "api.inventory_remove",
                     // The client handle's claim only holds once the client owns a world (see WorldProbe).
                     "api.client_handle",
-                    "api.world_block_read", "api.world_block_write", "api.world_is_loaded",
-                    "api.player_effects", "api.player_heal", "api.player_sound", "api.world_sound",
-                    "api.player_permissions", "api.player_teleport",
-                    "api.entity_spawn", "api.entity_motion", "api.entity_removal", "api.block_state",
-                    "api.world_particles", "event.player_respawned", "api.player_teleport_replaced_handle",
-                    "api.entity_attributes", "api.entity_hurt", "api.entity_fire",
+                    "api.world_block_read",
+                    "api.world_block_write",
+                    "api.world_is_loaded",
+                    "api.player_effects",
+                    "api.player_heal",
+                    "api.player_sound",
+                    "api.world_sound",
+                    "api.player_permissions",
+                    "api.player_teleport",
+                    "api.entity_spawn",
+                    "api.entity_motion",
+                    "api.entity_removal",
+                    "api.block_state",
+                    "api.world_particles",
+                    "event.player_respawned",
+                    "api.player_teleport_replaced_handle",
+                    "api.entity_attributes",
+                    "api.entity_hurt",
+                    "api.entity_fire",
                     // In singleplayer these are the two-level case: the integrated level and the rendered
                     // one each report their own tick, and the mod's damage type is loaded either way.
-                    "event.level_tick", "content.damage_type", "content.custom_tag",
-                    "api.world_weather", "api.server_game_rules", "api.world_particles_arguments", "api.entity_equipment",
-                    "api.world_clock", "api.clock_markers", "api.clock_rate_and_pause",
-                    "content.custom_clock", "content.custom_dimension", "api.chunk_lifecycle",
-                    "api.permission_nodes", "api.permission_grant", "api.block_entity_read", "api.block_data_addressing",
-                    "api.world_spawn_anchor", "api.player_respawn_anchor",
-                    "api.dimension_teleport", "api.player_dimension_teleport",
-                    "api.clock_client_sync", "api.world_container", "api.player_opened_menu",
+                    "event.level_tick",
+                    "content.damage_type",
+                    "content.custom_tag",
+                    "api.world_weather",
+                    "api.server_game_rules",
+                    "api.world_particles_arguments",
+                    "api.entity_equipment",
+                    "api.world_clock",
+                    "api.clock_markers",
+                    "api.clock_rate_and_pause",
+                    "content.custom_clock",
+                    "content.custom_dimension",
+                    "api.chunk_lifecycle",
+                    "api.permission_nodes",
+                    "api.permission_grant",
+                    "api.block_entity_read",
+                    "api.block_data_addressing",
+                    "api.world_spawn_anchor",
+                    "api.player_respawn_anchor",
+                    "api.dimension_teleport",
+                    "api.player_dimension_teleport",
+                    "api.clock_client_sync",
+                    "api.world_container",
+                    "api.player_opened_menu",
                     "api.player_equipment",
-                    "scheduler.server_task", "scheduler.client_task",
-                    "api.server_broadcast", "api.player_system_message",
-                    "event.block_break", "event.entity_attack", "event.entity_interact", "event.living_hurt",
-                    "event.living_hurt_rewrite", "event.block_used", "event.item_used",
+                    "scheduler.server_task",
+                    "scheduler.client_task",
+                    "api.server_broadcast",
+                    "api.player_system_message",
+                    "event.block_break",
+                    "event.entity_attack",
+                    "event.entity_interact",
+                    "event.living_hurt",
+                    "event.living_hurt_rewrite",
+                    "event.block_used",
+                    "event.item_used",
                 )
             }
         }
@@ -344,8 +389,10 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider, OM
         runCatching {
             val vanilla = readComponents("minecraft", "diamond_sword")
                 ?: return // bake not run yet (vanilla control is unbound too) — retry on the next tick
-            println("[oml_testmod] component probe [diamond_sword, control]: " +
-                "max_damage=${vanilla.get(DataComponents.MAX_DAMAGE)}")
+            println(
+                "[oml_testmod] component probe [diamond_sword, control]: " +
+                    "max_damage=${vanilla.get(DataComponents.MAX_DAMAGE)}",
+            )
 
             val ours = readComponents("oml_testmod", "test_sword")
                 ?: error("component bake has run (vanilla items bound) but test_sword is NOT bound")
@@ -363,7 +410,9 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider, OM
             val modifiers = ours.get(DataComponents.ATTRIBUTE_MODIFIERS)
             for (entry in modifiers?.modifiers().orEmpty()) {
                 println(
-                    "[oml_testmod] component probe [test_sword]: attribute=${entry.attribute().unwrapKey().orElse(null)} " +
+                    "[oml_testmod] component probe [test_sword]: attribute=${
+                        entry.attribute().unwrapKey().orElse(null)
+                    } " +
                         "amount=${entry.modifier().amount()} slot=${entry.slot()}",
                 )
             }

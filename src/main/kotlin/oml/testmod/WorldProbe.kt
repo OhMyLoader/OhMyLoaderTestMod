@@ -1,36 +1,40 @@
 package oml.testmod
 
 import net.minecraft.core.BlockPos
-import net.minecraft.core.Registry
-import net.minecraft.core.registries.Registries
+import net.minecraft.core.Direction
 import net.minecraft.core.registries.BuiltInRegistries
-import net.minecraft.resources.ResourceKey
+import net.minecraft.core.registries.Registries
 import net.minecraft.server.MinecraftServer
 import net.minecraft.server.level.ServerLevel
 import net.minecraft.server.level.ServerPlayer
-import net.minecraft.core.Direction
-import net.minecraft.tags.TagKey
-import org.ohmyloader.api.content.OMLBlockDataCarrier
-import net.minecraft.tags.DamageTypeTags
-import net.minecraft.world.InteractionResult
-import net.minecraft.world.MenuProvider
-import net.minecraft.world.damagesource.DamageSource
 import net.minecraft.server.permissions.LevelBasedPermissionSet
 import net.minecraft.server.permissions.PermissionSet
 import net.minecraft.server.permissions.Permissions
-import net.minecraft.world.phys.Vec3
-import java.util.Optional
+import net.minecraft.tags.DamageTypeTags
 import net.minecraft.world.Container
-import net.minecraft.world.level.ChunkPos
 import net.minecraft.world.InteractionHand
-import net.minecraft.world.entity.EquipmentSlot
-import net.minecraft.world.entity.player.Inventory
+import net.minecraft.world.InteractionResult
+import net.minecraft.world.MenuProvider
+import net.minecraft.world.damagesource.DamageSource
 import net.minecraft.world.entity.Entity
+import net.minecraft.world.entity.EquipmentSlot
 import net.minecraft.world.entity.LivingEntity
+import net.minecraft.world.entity.player.Inventory
 import net.minecraft.world.item.ItemStack
+import net.minecraft.world.level.ChunkPos
 import net.minecraft.world.level.Level
 import net.minecraft.world.level.block.state.BlockState
 import net.minecraft.world.phys.BlockHitResult
+import net.minecraft.world.phys.Vec3
+import oml.testmod.WorldProbe.CLOCK_RATE_WINDOW
+import oml.testmod.WorldProbe.FAST_RATE
+import oml.testmod.WorldProbe.OUTSIDE_BORDER_POSITION
+import oml.testmod.WorldProbe.WEATHER_DRIVE
+import oml.testmod.WorldProbe.chunkReady
+import oml.testmod.WorldProbe.driveHurtRewrite
+import oml.testmod.WorldProbe.guard
+import oml.testmod.WorldProbe.probeWeather
+import org.ohmyloader.api.content.OMLBlockDataCarrier
 import org.ohmyloader.api.tick.OMLScheduler
 import org.ohmyloader.api.tick.OMLSide
 import org.ohmyloader.api.tick.OMLTask
@@ -38,6 +42,7 @@ import org.ohmyloader.api26_3.*
 import org.ohmyloader.api26_3.event.BlockUsedEvent
 import org.ohmyloader.api26_3.event.Events
 import org.ohmyloader.api26_3.event.ItemUsedEvent
+import java.util.*
 
 /**
  * Probes the version-facing surface (`OMLGame`, the level / player / inventory reads and writes, the tick
@@ -91,7 +96,7 @@ object WorldProbe {
     private const val LEATHER_BOOTS = "minecraft:leather_boots"
     private const val IRON_CHESTPLATE = "minecraft:iron_chestplate"
 
-    /** An item the game equips in no armour slot, driven as the refusal. */
+    /** An item the game equips in no armor slot, driven as the refusal. */
     private const val DIAMOND = "minecraft:diamond"
 
     /** A slot name the game does not have. */
@@ -152,6 +157,7 @@ object WorldProbe {
     /** The second declared dimension, whose type names no clock — the pair the teleport probe moves between. */
     private const val MOD_DIMENSION_B = "oml_testmod:test_dim_b"
     private const val ABSENT_DIMENSION_B = "oml_testmod:no_such_dim"
+
     /** Where the anchor probes point: a column of the mod's own dimension, with a bedrock floor under it. */
     private val ANCHOR_POSITION = BlockPos(72, 41, 72)
     private const val ANCHOR_YAW = 90f
@@ -229,7 +235,7 @@ object WorldProbe {
     /** A rule that exists in every vanilla dimension, so the flip-and-restore has a guaranteed subject. */
     private const val KEEP_INVENTORY_RULE = "minecraft:keep_inventory"
 
-    /** A dust colour in the game's own packed form: 0xRRGGBB. */
+    /** A dust color in the game's own packed form: 0xRRGGBB. */
     private const val DUST_COLOR = 0xFF5500
 
     /** X motion written to the launched snowball; the game has to integrate it into the position. */
@@ -377,7 +383,7 @@ object WorldProbe {
     private var breakTarget: BlockPos? = null
 
     @Volatile
-    private var drivenUuid: java.util.UUID? = null
+    private var drivenUuid: UUID? = null
 
     @Volatile
     private var driveAttack = false
@@ -443,7 +449,7 @@ object WorldProbe {
             E2E.check(
                 "event.server_started",
                 "minecraft:overworld" in dimensions && event.server.tickCount >= 0,
-                "dimensions=$dimensions tick=${event.server.tickCount} dedicated=${event.server.isDedicatedServer()}",
+                "dimensions=$dimensions tick=${event.server.tickCount} dedicated=${event.server.isDedicatedServer}",
             )
         }
         // Record-only, and it cannot be an expectation: it fires during teardown, which the harness only
@@ -621,7 +627,7 @@ object WorldProbe {
         step("api.player_dimension_teleport") { probePlayerDimensionTeleport(player) }
         step("api.player_opened_menu") { probeOpenedMenu(player) }
         step("api.world_particles") { probeParticles(player) }
-        // Last: it kills the player and brings them back, so nothing may depend on the handle afterwards.
+        // Last: it kills the player and brings them back, so nothing may depend on the handle afterward.
         step("event.player_respawned") { driveRespawn(player) }
         step("api.player_teleport_replaced_handle") { driveTeleportAfterRespawn() }
     }
@@ -702,7 +708,7 @@ object WorldProbe {
         val pending = heldTickets.remove(owner)?.toList().orEmpty()
         if (pending.isEmpty()) return
         val server = OMLGame.server ?: return
-        pending.forEach { (dimensionId, position) ->
+        pending.forEach { [dimensionId, position] ->
             server.levelById(dimensionId)?.releaseForceLoadedChunk(position)
         }
     }
@@ -724,10 +730,10 @@ object WorldProbe {
         val named = server.onlinePlayers.firstOrNull()?.let { server.playerByName(it.scoreboardName) }
         E2E.check(
             "api.server_handle",
-            "minecraft:overworld" in dimensions && server.isDedicatedServer() == dedicated &&
+            "minecraft:overworld" in dimensions && server.isDedicatedServer == dedicated &&
                 server.playerByName("oml_e2e_absent") == null &&
                 (named != null) == server.onlinePlayers.isNotEmpty(),
-            "dimensions=$dimensions dedicated=${server.isDedicatedServer()} " +
+            "dimensions=$dimensions dedicated=${server.isDedicatedServer} " +
                 "on a ${if (dedicated) "dedicated" else "client"} run, " +
                 "ticks=${server.tickCount} players=${server.onlinePlayers.size}",
         )
@@ -842,7 +848,7 @@ object WorldProbe {
 
     /**
      * Sends once. The verdict belongs to the client, where the chat line arrives — a failed send reports
-     * here and cannot be overwritten afterwards, because nothing can arrive after it.
+     * here and cannot be overwritten afterward, because nothing can arrive after it.
      */
     private fun probeSend(player: ServerPlayer): Boolean {
         val server = OMLGame.server ?: return false
@@ -876,12 +882,13 @@ object WorldProbe {
         val server = OMLGame.server ?: return false
         val dimensions = server.dimensionIds
         if (dimensions.isEmpty()) return false
-        val resolved = dimensions.map { it to server.levelById(it)?.let { level -> level.dimensionId to level.isClientSide } }
+        val resolved =
+            dimensions.map { it to server.levelById(it)?.let { level -> level.dimensionId to level.isClientSide } }
         val absent = server.levelById("oml_testmod:absent")
         E2E.check(
             "api.server_level_lookup",
-            resolved.all { (id, read) -> read == (id to false) } && absent == null,
-            "resolved=${resolved.joinToString { (id, read) -> "$id->$read" }} unregistered id -> $absent",
+            resolved.all { [id, read] -> read == (id to false) } && absent == null,
+            "resolved=${resolved.joinToString { [id, read] -> "$id->$read" }} unregistered id -> $absent",
         )
         return true
     }
@@ -904,13 +911,18 @@ object WorldProbe {
             E2E.check("api.world_weather", false, "thunder without rain accepted=$thunderWithoutRain")
             return true
         }
-        val (raining, thundering) = WEATHER_DRIVE[weatherPhase]
+        val [raining, thundering] = WEATHER_DRIVE[weatherPhase]
         if (!weatherWritten) {
             // Every phase asks the game to hold its state, the clear ones included: a zero duration leaves
             // the weather timer at zero, and the game then samples its own duration on the next weather
             // tick — a quarter chance of starting to rain inside the phase whose assertion is that it
             // stayed clear.
-            if (!world.setWeather(raining = raining, thundering = thundering, durationTicks = WEATHER_HOLD_TICKS)) return false
+            if (!world.setWeather(
+                    raining = raining,
+                    thundering = thundering,
+                    durationTicks = WEATHER_HOLD_TICKS,
+                )
+            ) return false
             weatherWritten = true
             return false
         }
@@ -949,7 +961,7 @@ object WorldProbe {
         val clock = level.clock ?: return false
         val instance = level.clockManager().instanceOf(clock) ?: return false
         val nether = server.levelById(NETHER) ?: return false
-        val id = clock.getRegisteredName()
+        val id = clock.registeredName
         val before = instance.totalTicks()
         val wanted = before + 1000
         val wrote = level.clockManager().applyTotalTicks(clock, wanted)
@@ -962,7 +974,7 @@ object WorldProbe {
             "a clockless dimension reads null" to (nether.clock == null),
             "an unregistered id reads null" to (server.clockById(ABSENT_CLOCK) == null),
             "the write was accepted" to wrote,
-            "the server names the same clock" to (viaServer?.getRegisteredName() == id),
+            "the server names the same clock" to (viaServer?.registeredName == id),
             "the game's record moved" to (seenThere == wanted),
             "the position restores" to (restored && instance.totalTicks() == before),
         )
@@ -971,7 +983,7 @@ object WorldProbe {
             flags.all { it.second },
             "${flags.filterNot { it.second }.map { it.first }} failed of ${flags.size}; $before -> " +
                 "$seenThere (wanted $wanted), restored to ${instance.totalTicks()}, nether clock=" +
-                "${nether.clock?.getRegisteredName() ?: "null"}",
+                (nether.clock?.registeredName ?: "null"),
         )
         return true
     }
@@ -1097,11 +1109,11 @@ object WorldProbe {
         val border = b.worldBorder
         val borderWas = border.size
         // A border this tight puts ANCHOR_POSITION's column outside it, so the game keeps the request but hands
-        // back its own centre — and the centre is where a respawn actually lands.
-        border.setSize(TIGHT_BORDER_SIZE)
+        // back its own center — and the center is where a respawn actually lands.
+        border.size = TIGHT_BORDER_SIZE
         val refusedOutsideBorder = server.setWorldSpawn(MOD_DIMENSION_B, OUTSIDE_BORDER_POSITION, ANCHOR_YAW)
         val movedInside = server.worldSpawn
-        border.setSize(borderWas)
+        border.size = borderWas
         val restored = server.setWorldSpawn(
             before.globalPos().dimension().identifier().toString(),
             before.pos(),
@@ -1234,7 +1246,7 @@ object WorldProbe {
         val granted = player.grantPermissionNode(MOD_NODE)
         val grantAnswers = player.permissions().hasPermission(node)
         val reGranted = player.grantPermissionNode(MOD_NODE)
-        val commands = server.getCommands()
+        val commands = server.commands
         gatedRuns = 0
         commands.performPrefixedCommand(player.createCommandSourceStack(), "oml_e2e_gated")
         val runsAfterGrant = gatedRuns
@@ -1293,7 +1305,7 @@ object WorldProbe {
         val level = server.levelById(dimensionId) ?: return false
         level.forceLoadChunk(position)
         heldTickets.getOrPut(ticketOwner) {
-            java.util.Collections.synchronizedSet(LinkedHashSet())
+            Collections.synchronizedSet(LinkedHashSet())
         } += dimensionId to position
         return tickingKey(dimensionId, ChunkPos.containing(position)) in tickingChunks
     }
@@ -1310,7 +1322,8 @@ object WorldProbe {
         val b = server.levelById(MOD_DIMENSION_B) ?: return false
         if (teleportPhase == 0) {
             if (!(chunkReady(server, MOD_DIMENSION, TELEPORT_POSITION) &&
-                chunkReady(server, MOD_DIMENSION_B, TELEPORT_POSITION))) {
+                    chunkReady(server, MOD_DIMENSION_B, TELEPORT_POSITION))
+            ) {
                 if (teleportTick < 0) teleportTick = server.tickCount
                 if (server.tickCount - teleportTick < CHUNK_TICK_WAIT_LIMIT) return false
                 E2E.check(
@@ -1360,13 +1373,13 @@ object WorldProbe {
             "the second level holds the moved one" to teleportArrived,
             "an unloaded destination is refused" to (refused == null && moved?.level() === b),
             "the two types still disagree about their clock" to (
-                a.clock?.getRegisteredName() == MOD_CLOCK && b.clock == null
+                a.clock?.registeredName == MOD_CLOCK && b.clock == null
                 ),
         )
         // Taken before the teardown: after `discard()` and the two releases the destination holds nothing,
         // so an empty bEntities / null byId there would describe the cleanup instead of the failure.
         val seen = "moved=${moved?.dimensionId} refused=$refused " +
-            "aClock=${a.clock?.getRegisteredName()} bClock=${b.clock?.getRegisteredName()} " +
+            "aClock=${a.clock?.registeredName} bClock=${b.clock?.registeredName} " +
             "bEntities=${b.entities().size} byId=${moved?.let { b.getEntity(it.id) }} " +
             "pos=${moved?.blockPosition()} fell=${moved?.position()} " +
             "byUuid=${moved?.let { b.getEntityInAnyDimension(it.uuid) }}"
@@ -1463,7 +1476,8 @@ object WorldProbe {
         val b = server.levelById(MOD_DIMENSION_B) ?: return false
         if (pressDataPhase == 0) {
             if (!(chunkReady(server, MOD_DIMENSION, PRESS_DATA_POSITION) &&
-                    chunkReady(server, MOD_DIMENSION_B, PRESS_DATA_POSITION))) {
+                    chunkReady(server, MOD_DIMENSION_B, PRESS_DATA_POSITION))
+            ) {
                 if (pressDataTick < 0) pressDataTick = server.tickCount
                 if (server.tickCount - pressDataTick < CHUNK_TICK_WAIT_LIMIT) return false
                 E2E.check(
@@ -1509,7 +1523,8 @@ object WorldProbe {
         // pass afterwards, so one tick of distance still reads the value it was born with: wait for the ticker
         // to show itself, bounded.
         if ((dataA?.getInt("progress") ?: 0) <= pressDataProgressBefore &&
-            server.tickCount - pressDataWriteTick < PROGRESS_TICK_WAIT_LIMIT) return false
+            server.tickCount - pressDataWriteTick < PROGRESS_TICK_WAIT_LIMIT
+        ) return false
         val dataB = server.blockDataAt(MOD_DIMENSION_B, PRESS_DATA_POSITION)
         val progressAfter = dataA?.getInt("progress") ?: -1
         val sideA = dataA?.getInt("side", 0)
@@ -1573,7 +1588,7 @@ object WorldProbe {
         val flags = listOf(
             "the player arrived in the declared dimension" to (there != null && arrived),
             "the game kept the same player instance" to (there === player),
-            "the dimension's clock is the mod's own" to (clock?.getRegisteredName() == MOD_CLOCK),
+            "the dimension's clock is the mod's own" to (clock?.registeredName == MOD_CLOCK),
             // The game settles a player out of the block they land inside, so the column is the promise and
             // the exact block height is the game's own answer.
             "the player is back in the column they came from" to (
@@ -1585,7 +1600,7 @@ object WorldProbe {
             "api.player_dimension_teleport",
             flags.all { it.second },
             "${flags.filterNot { it.second }.map { it.first }} failed of ${flags.size}; there=" +
-                "${there?.dimensionId} same=${there === player} clock=${clock?.getRegisteredName()} " +
+                "${there?.dimensionId} same=${there === player} clock=${clock?.registeredName} " +
                 "back=${back?.dimensionId} from=$from now=${back?.blockPosition()}",
         )
         server.levelById(MOD_DIMENSION)?.releaseForceLoadedChunk(TELEPORT_POSITION)
@@ -1722,7 +1737,7 @@ object WorldProbe {
             "${flags.filterNot { it.second }.map { it.first }} failed of ${flags.size}; dimensions=" +
                 "${server.dimensionIds.sorted()}, type=${dim.dimensionTypeId}, " +
                 "height=${dim.dimensionType().height()} minY=${dim.dimensionType().minY()} " +
-                "clock=${dim.clock?.getRegisteredName()} at ${dim.clockInstance?.totalTicks()}",
+                "clock=${dim.clock?.registeredName} at ${dim.clockInstance?.totalTicks()}",
         )
         return true
     }
@@ -1769,7 +1784,7 @@ object WorldProbe {
                 "api.clock_rate_and_pause",
                 false,
                 "phase $clockRatePhase stalled after $elapsed ticks at rate ${instance.rate()}, " +
-                    "paused=${instance.isPaused()}",
+                    "paused=${instance.isPaused}",
             )
             clockRatePhase = 3
             return true
@@ -1791,7 +1806,7 @@ object WorldProbe {
             E2E.check(
                 "api.clock_rate_and_pause",
                 false,
-                "phase $clockRatePhase (rate ${instance.rate()}, paused=${instance.isPaused()}) counted $advanced " +
+                "phase $clockRatePhase (rate ${instance.rate()}, paused=${instance.isPaused}) counted $advanced " +
                     "in $elapsed game ticks, the game's own arithmetic wants $expected ±$slack",
             )
             clockRatePhase = 3
@@ -1802,19 +1817,21 @@ object WorldProbe {
                 manager.applyPaused(clock, true)
                 clockRatePhase = 1
             }
+
             1 -> {
                 manager.applyPaused(clock, false)
                 manager.applyRate(clock, 1f)
                 clockRatePhase = 2
             }
+
             else -> {
                 val restored = manager.applyTotalTicks(clock, clockBaseline)
                 E2E.check(
                     "api.clock_rate_and_pause",
-                    restored && !instance.isPaused() && instance.rate() == 1f,
+                    restored && !instance.isPaused && instance.rate() == 1f,
                     "the game counted $FAST_RATE, nothing while paused, and 1.0 after resuming; the " +
                         "position restored to $clockBaseline is=${instance.totalTicks()} " +
-                        "rate=${instance.rate()} paused=${instance.isPaused()}",
+                        "rate=${instance.rate()} paused=${instance.isPaused}",
                 )
                 clockRatePhase = 3
                 return true
@@ -1955,7 +1972,7 @@ object WorldProbe {
 
     /**
      * Worn items addressed by the game's own slot name and by item id. The refusals are the point — an item the
-     * game equips in no armour slot, a slot name it never uses, an unregistered id — and each one is compared
+     * game equips in no armor slot, a slot name it never uses, an unregistered id — and each one is compared
      * with the game's own `isEquippableInSlot`, so the verdict stays the game's rule rather than OML's. A cow in
      * open air is the subject, so this needs no player, and nothing is destroyed: the unequip hands the worn
      * stack back to the probe.
@@ -2307,7 +2324,7 @@ object WorldProbe {
     /**
      * A launch point with a clear run along +x, climbed up from above the player's head until the blocks
      * say air. Position 2.5 off the player is where a spawned entity lands anyway; the run is measured
-     * generously because the shot keeps travelling after the window closes.
+     * generously because the shot keeps traveling after the window closes.
      */
     private fun openAirRun(world: Level, at: Vec3): Triple<Double, Double, Double>? {
         var y = at.y() + SHOT_LIFT
@@ -2361,8 +2378,16 @@ object WorldProbe {
             "base restored" to (restored && player.maxHealth == baseBefore.toFloat()),
             "unknown attribute reads null" to (player.attributeValue("oml_testmod:absent") == null),
             "unknown attribute refuses write" to !player.setAttributeBase("oml_testmod:absent", 1.0),
-            "unknown operation refused" to !player.addAttributeModifier(ATTACK_DAMAGE_ATTRIBUTE, MODIFIER_ID, 1.0, "sideways"),
-            "removing nothing answers false" to !player.removeAttributeModifier(ATTACK_DAMAGE_ATTRIBUTE, "oml_testmod:absent"),
+            "unknown operation refused" to !player.addAttributeModifier(
+                ATTACK_DAMAGE_ATTRIBUTE,
+                MODIFIER_ID,
+                1.0,
+                "sideways",
+            ),
+            "removing nothing answers false" to !player.removeAttributeModifier(
+                ATTACK_DAMAGE_ATTRIBUTE,
+                "oml_testmod:absent",
+            ),
             "an attribute this kind of entity lacks reads null" to (cowDamage == null),
             "and its write refuses instead of throwing" to (!cowWrite && !cowModifier),
             "an attribute it does carry still reads" to (cowHealth != null),
@@ -2588,8 +2613,8 @@ object WorldProbe {
         val world = player.level()
         val feet = player.blockPosition()
         val spots = airPockets(world, feet, 2) ?: return false
-        val (chestPos, chestOriginal) = spots[0]
-        val (furnacePos, furnaceOriginal) = spots[1]
+        val [chestPos, chestOriginal] = spots[0]
+        val [furnacePos, furnaceOriginal] = spots[1]
         if (!world.setBlockAt(chestPos, CHEST) || !world.setBlockAt(furnacePos, FURNACE)) return false
         val chest = world.containerAt(chestPos) ?: return false
         val furnace = world.containerAt(furnacePos)
@@ -2753,7 +2778,7 @@ object WorldProbe {
      */
     private fun driveTeleportAfterRespawn(): Boolean {
         val old = replacedHandle ?: return false
-        val live = OMLGame.server?.getPlayerList()?.getPlayer(old.uuid) ?: return false
+        val live = OMLGame.server?.playerList?.getPlayer(old.uuid) ?: return false
         val at = live.blockPosition()
         val asked = old.teleport(at.x + 3.5, at.y + 0.1, at.z + 0.5)
         val now = live.blockPosition()
@@ -2791,7 +2816,7 @@ object WorldProbe {
         attackObservation = null
         drivenUuid = player.uuid
         driveAttack = true
-        // Self-targeted, and cancelled at HEAD: the swing never runs, so the observation is the handler's
+        // Self-targeted, and canceled at HEAD: the swing never runs, so the observation is the handler's
         // own report rather than a health delta.
         val outcome = runCatching { player.attack(player) }
         driveAttack = false
@@ -2800,7 +2825,7 @@ object WorldProbe {
             "event.entity_attack",
             outcome.isSuccess && seen == player.typeId,
             "handler saw target type ${seen ?: "nothing"}; the driven call " +
-                "${if (outcome.isSuccess) "returned" else "threw ${outcome.exceptionOrNull()}"}",
+                if (outcome.isSuccess) "returned" else "threw ${outcome.exceptionOrNull()}",
         )
         return true
     }
@@ -2866,7 +2891,7 @@ object WorldProbe {
         val tick = OMLGame.server?.tickCount ?: return false
         when (rewritePhase) {
             0 -> {
-                val (delta, applied) = driveDamage(player, level, source, rewriting = false)
+                val [delta, applied] = driveDamage(player, level, source, rewriting = false)
                 if (!applied || delta <= 0f) {
                     if (controlWaits++ > REFUSED_DAMAGE_WAIT_TICKS) {
                         E2E.check(
@@ -2883,9 +2908,10 @@ object WorldProbe {
                 rewritePhase = 1
                 return false
             }
+
             1 -> {
                 if (tick - controlTick <= DAMAGE_COOLDOWN_TICKS) return false
-                val (delta, applied) = driveDamage(player, level, source, rewriting = true)
+                val [delta, applied] = driveDamage(player, level, source, rewriting = true)
                 val seen = rewriteObservation
                 rewritePhase = 2
                 E2E.check(
@@ -2896,6 +2922,7 @@ object WorldProbe {
                 )
                 return true
             }
+
             else -> return true
         }
     }
@@ -2979,7 +3006,7 @@ object WorldProbe {
 
     /**
      * Puts dirt in the hand slot for the driven click and puts the slot back afterwards: the event's item
-     * id has to be an item the player actually holds, and an uncancelled use would consume it.
+     * id has to be an item the player actually holds, and an uncanceled use would consume it.
      */
     private fun withDirtInHand(player: ServerPlayer, body: (ItemStack) -> Boolean): Boolean {
         val inventory = player.inventory
@@ -3012,7 +3039,7 @@ object WorldProbe {
 
     /**
      * Live proof that the scheduler rides the game's own tick: a delayed task runs, a repeating one keeps
-     * running, and a cancelled one stops. Bounded in ticks, like the API it exercises.
+     * running, and a canceled one stops. Bounded in ticks, like the API it exercises.
      *
      * Three further promises the API makes and only a live run can show: a task never runs earlier than
      * the tick after it was queued; it always runs on the thread that ticks the side it was queued for

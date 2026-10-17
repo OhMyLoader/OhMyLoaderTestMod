@@ -6,58 +6,7 @@ import net.minecraft.server.level.ServerPlayer
 import org.ohmyloader.api.command.OMLArgumentType
 import org.ohmyloader.api.command.OMLCommandRegistry
 import org.ohmyloader.api.command.OMLCommandSource
-import org.ohmyloader.api26_3.addAttributeModifier
-import org.ohmyloader.api26_3.applyEffect
-import org.ohmyloader.api26_3.applyTicks
-import org.ohmyloader.api26_3.attributeBase
-import org.ohmyloader.api26_3.attributeValue
-import org.ohmyloader.api26_3.blockDataAt
-import org.ohmyloader.api26_3.entitiesOfType
-import org.ohmyloader.api26_3.setAttributeBase
-import org.ohmyloader.api26_3.playSoundAt
-import org.ohmyloader.api26_3.blockIdAt
-import org.ohmyloader.api26_3.dimensionId
-import org.ohmyloader.api26_3.registry
-import org.ohmyloader.api26_3.setWorldSpawn
-import org.ohmyloader.api26_3.tagsOf
-import org.ohmyloader.api26_3.clearRespawnAnchor
-import org.ohmyloader.api26_3.clockById
-import org.ohmyloader.api26_3.clockIds
-import org.ohmyloader.api26_3.contains
-import org.ohmyloader.api26_3.countOf
-import org.ohmyloader.api26_3.dimensionIds
-import org.ohmyloader.api26_3.dimensionTypeIds
-import org.ohmyloader.api26_3.equip
-import org.ohmyloader.api26_3.ignite
-import org.ohmyloader.api26_3.itemIn
-import org.ohmyloader.api26_3.gameModeName
-import org.ohmyloader.api26_3.gameRuleValue
-import org.ohmyloader.api26_3.giveItem
-import org.ohmyloader.api26_3.grantPermissionNode
-import org.ohmyloader.api26_3.hasPermissionNode
-import org.ohmyloader.api26_3.permissionNodeOverrides
-import org.ohmyloader.api26_3.hurt
-import org.ohmyloader.api26_3.instanceOf
-import org.ohmyloader.api26_3.isForceLoaded
-import org.ohmyloader.api26_3.itemId
-import org.ohmyloader.api26_3.membersOf
-import org.ohmyloader.api26_3.onlinePlayers
-import org.ohmyloader.api26_3.revokePermissionNode
-import org.ohmyloader.api26_3.openedMenuId
-import org.ohmyloader.api26_3.permissionLevel
-import org.ohmyloader.api26_3.playSound
-import org.ohmyloader.api26_3.remove
-import org.ohmyloader.api26_3.respawnAnchor
-import org.ohmyloader.api26_3.setGameRule
-import org.ohmyloader.api26_3.setRespawnAnchor
-import org.ohmyloader.api26_3.setWeather
-import org.ohmyloader.api26_3.spawnDustParticles
-import org.ohmyloader.api26_3.spawnItemParticles
-import org.ohmyloader.api26_3.spawnLivingEntity
-import org.ohmyloader.api26_3.teleport
-import org.ohmyloader.api26_3.timelineIds
-import org.ohmyloader.api26_3.unequip
-import org.ohmyloader.api26_3.worldSpawn
+import org.ohmyloader.api26_3.*
 import kotlin.math.abs
 
 /**
@@ -130,7 +79,10 @@ object PlayCommands {
             subcommand("rule") {
                 permissionNode = KEEPER_NODE
                 argument("name", OMLArgumentType.WORD) {
-                    argument("value", OMLArgumentType.GREEDY_STRING) { executes { source -> source.reply(rule(source)) } }
+                    argument(
+                        "value",
+                        OMLArgumentType.GREEDY_STRING,
+                    ) { executes { source -> source.reply(rule(source)) } }
                 }
             }
             subcommand("wear") { executes { withPlayer(it) { p -> wearKitArmour(p) } } }
@@ -152,7 +104,10 @@ object PlayCommands {
                 executes { source -> source.reply(adminStatus(source)) }
             }
             subcommand("tag") {
-                argument("tag", OMLArgumentType.GREEDY_STRING) { executes { source -> source.reply(tagReport(source)) } }
+                argument(
+                    "tag",
+                    OMLArgumentType.GREEDY_STRING,
+                ) { executes { source -> source.reply(tagReport(source)) } }
                 executes { source -> source.reply(tagSummary()) }
             }
             subcommand("panel") {
@@ -214,24 +169,24 @@ object PlayCommands {
             destination.x + 0.5, destination.y.toDouble(), destination.z + 0.5, home.first,
         )
         if (moved) {
-            (player.level() as? ServerLevel)?.playSoundAt(
+            player.level().playSoundAt(
                 "minecraft:entity.enderman.teleport", player.x, player.y, player.z,
             )
         }
-        return "pearl flew ${if (moved) "home" else "nowhere"}; $had consumed, " +
+        return ("pearl flew ${if (moved) "home" else "nowhere"}; $had consumed, " +
             "${player.inventory.countOf(PlayContent.id(PlayContent.PEARL))} left; " +
             PlayLookups.level(home.first)?.let { target ->
                 "from ${player.dimensionId} ${player.blockPosition()} to ${target.dimensionId} $destination " +
                     "loaded=${target.isLoaded(destination)} forced=${target.isForceLoaded(destination)} " +
                     "border=${target.worldBorder.isWithinBounds(destination)} same=${target == player.level()}"
-            } ?: "the home's dimension is not loaded on this server"
+            })
     }
 
     fun enterGallery(player: ServerPlayer): String = PlayGallery.enter(player)
 
     /** The waystone under your feet, or the gallery's when you are standing on the pad beside it. */
     private fun claimStone(player: ServerPlayer): String {
-        val level = player.level() as? ServerLevel ?: return "no server level under you"
+        val level = player.level()
         val below = player.blockPosition().below()
         val stone = if (level.blockIdAt(below) == PlayMachines.WAYSTONE) below else PlayGallery.WAYSTONE_AT
         if (level.blockIdAt(stone) != PlayMachines.WAYSTONE) return "no waystone here to claim"
@@ -246,7 +201,7 @@ object PlayCommands {
 
     private fun padStatus(player: ServerPlayer): String {
         val machine = PlayMachines.machineUnder(player) ?: return "not standing on a kit block"
-        val (level, position) = machine
+        val [level, position] = machine
         val data = level.blockDataAt(position) ?: return "no data at $position"
         return "standing on ${level.blockIdAt(position)}; charge=${data.getInt("charge")}, " +
             "launches=${data.getInt("launches")}, pulses=${data.getInt("pulses")}, " +
@@ -254,7 +209,7 @@ object PlayCommands {
     }
 
     private fun chargePad(player: ServerPlayer, steps: Int = 1): String {
-        val level = player.level() as? ServerLevel ?: return "not on a server level"
+        val level = player.level()
         val position = player.blockPosition().below()
         val data = level.blockDataAt(position) ?: return "nothing under your feet to charge"
         if (!PlayMachines.padAt(level, position)) return "${level.blockIdAt(position)} is not a pad"
@@ -268,19 +223,19 @@ object PlayCommands {
             "dimensions=${server.dimensionIds.sorted()}"
 
     private fun clockTo(player: ServerPlayer, seconds: Int): String {
-        val level = player.level() as? ServerLevel ?: return "not on a server level"
+        val level = player.level()
         val clock = server.clockById(PlayContent.id(PlayContent.CLOCK)) ?: return "no gallery clock"
         val manager = level.clockManager()
         val instance = manager.instanceOf(clock) ?: return "the gallery clock runs on no instance"
         val before = instance.totalTicks()
         val wrote = manager.applyTicks(clock, seconds)
         return "gallery clock $before -> ${manager.instanceOf(clock)?.totalTicks()}: wrote=$wrote, " +
-            "rate=${manager.instanceOf(clock)?.rate()}, paused=${manager.instanceOf(clock)?.isPaused()}"
+            "rate=${manager.instanceOf(clock)?.rate()}, paused=${manager.instanceOf(clock)?.isPaused}"
     }
 
     private fun zap(source: OMLCommandSource): String {
         val player = require(source) ?: return "no player"
-        val level = player.level() as? ServerLevel ?: return "not on a server level"
+        val level = player.level()
         val name = source.getString("target")
         val target = level.entitiesOfType("minecraft:$name").firstOrNull() as? net.minecraft.world.entity.LivingEntity
             ?: return "no living $name near ${level.dimensionId}"
@@ -293,7 +248,7 @@ object PlayCommands {
 
     private fun summon(source: OMLCommandSource): String {
         val player = require(source) ?: return "no player"
-        val level = player.level() as? ServerLevel ?: return "not on a server level"
+        val level = player.level()
         val type = source.getString("type")
         val count = source.getInt("count").coerceIn(1, 8)
         val spawned = (1..count).mapNotNull {
@@ -314,17 +269,17 @@ object PlayCommands {
 
     private fun weather(source: OMLCommandSource): String {
         val player = require(source) ?: return "no player"
-        val level = player.level() as? ServerLevel ?: return "not on a server level"
+        val level = player.level()
         return when (source.getString("kind")) {
-            "clear" -> described(level, level.setWeather(false, false, 1200), "clear")
-            "rain" -> described(level, level.setWeather(true, false, 1200), "rain")
-            "storm" -> described(level, level.setWeather(true, true, 1200), "storm")
+            "clear" -> described(level, level.setWeather(raining = false, thundering = false, durationTicks = 1200), "clear")
+            "rain" -> described(level, level.setWeather(raining = true, thundering = false, durationTicks = 1200), "rain")
+            "storm" -> described(level, level.setWeather(raining = true, thundering = true, durationTicks = 1200), "storm")
             else -> "kind must be clear, rain or storm"
         }
     }
 
     private fun described(level: ServerLevel, wrote: Boolean, kind: String): String =
-        "$kind asked for (wrote=$wrote); now ${level.isRaining()}, thunder ${level.isThundering()} " +
+        "$kind asked for (wrote=$wrote); now ${level.isRaining}, thunder ${level.isThundering} " +
             "over ${level.dimensionId}"
 
     private fun rule(source: OMLCommandSource): String {
@@ -374,7 +329,7 @@ object PlayCommands {
     }
 
     private fun anchorHere(player: ServerPlayer): String {
-        val level = player.level() as? ServerLevel ?: return "not on a server level"
+        val level = player.level()
         val wrote = player.setRespawnAnchor(level.dimensionId, player.blockPosition(), player.yRot, player.xRot)
         PlayState.setHome(player, level.dimensionId, player.blockPosition())
         return "anchor written=$wrote at ${player.blockPosition()} in ${level.dimensionId}; " +
@@ -421,7 +376,7 @@ object PlayCommands {
     /** The server's live instance for whoever sent this, not whichever handle the game happens to carry in the
      * source: after a death the game replaces the instance, and a removed one answers nothing. */
     private fun require(source: OMLCommandSource): ServerPlayer? =
-        (source.platform as? CommandSourceStack)?.player?.let { server.getPlayerList().getPlayer(it.uuid) }
+        (source.platform as? CommandSourceStack)?.player?.let { server.playerList.getPlayer(it.uuid) }
 
     private fun worldSpawnPosition(): String = server.worldSpawn.pos().toString()
 
@@ -435,7 +390,7 @@ object PlayCommands {
     private fun tabRow(): String {
         val tabs = net.minecraft.core.registries.BuiltInRegistries.CREATIVE_MODE_TAB
         val rows = tabs.entrySet().mapNotNull { entry ->
-            entry.value?.let {
+            entry.value.let {
                 val right = if (it.isAlignedRight) "R" else ""
                 "${entry.key.identifier()}=${it.row()}/${it.column()}$right"
             }

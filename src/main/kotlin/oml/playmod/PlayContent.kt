@@ -31,7 +31,7 @@ object PlayContent {
     fun id(name: String): String = "oml_playmod:$name"
 
     /** The gallery's standing pad and waystone, placed once by `/kit gallery build`. */
-    val GALLERY_FLOOR = 4
+    const val GALLERY_FLOOR = 4
     val GALLERY_CENTER = BlockPos(0, GALLERY_FLOOR + 1, 0)
 
     fun declare(registry: ContentRegistry) {

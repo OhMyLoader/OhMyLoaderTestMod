@@ -233,9 +233,7 @@ object MergeProbe {
         }
 
         // Every candidate accepted, which is the only thing the listing measurement needs.
-        val selector = object : ResourceManager.Selector {
-            override fun isIncluded(name: Identifier) = true
-        }
+        val selector = ResourceManager.Selector { true }
         // Discovery by directory — the path that runs through the injected PackResources.listResources
         // and how 26.3 finds sounds (Sound.SOUND_LISTER = FileToIdConverter("sounds", ".ogg")), particles,
         // atlas sprites and blockstates/items.

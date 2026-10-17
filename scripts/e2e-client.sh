@@ -16,7 +16,7 @@
 #      OML_E2E_QUICKPLAY (default oml-e2e-world), OML_E2E_GRACE_SECONDS, OML_E2E_WATCHDOG,
 #      OML_E2E_EXPECT_EXTRA (gate self-test), OML_LOG_FILE.
 set -uo pipefail
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/.." || exit
 
 TICKS="${OML_E2E_TICKS:-200}"
 TIMEOUT="${OML_E2E_TIMEOUT:-420}"

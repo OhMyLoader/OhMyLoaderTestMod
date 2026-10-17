@@ -9,7 +9,7 @@
 # Usage: ./scripts/play-session.sh [world]     (default: playtest)
 # Env:   PLAY_SESSION_SECONDS (default 150) — how long to stay in the world.
 set -uo pipefail
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/.." || exit
 
 WORLD="${1:-playtest}"
 LOG="build/play-client.log"

@@ -3,22 +3,7 @@ package oml.playmod
 import net.minecraft.core.BlockPos
 import net.minecraft.server.level.ServerLevel
 import net.minecraft.server.level.ServerPlayer
-import org.ohmyloader.api26_3.applyMarker
-import org.ohmyloader.api26_3.blockDataAt
-import org.ohmyloader.api26_3.clockById
-import org.ohmyloader.api26_3.clockInstance
-import org.ohmyloader.api26_3.dimensionId
-import org.ohmyloader.api26_3.entitiesOfType
-import org.ohmyloader.api26_3.forceLoadChunk
-import org.ohmyloader.api26_3.isForceLoaded
-import org.ohmyloader.api26_3.instanceOf
-import org.ohmyloader.api26_3.levelById
-import org.ohmyloader.api26_3.markerIdsDriving
-import org.ohmyloader.api26_3.markersOf
-import org.ohmyloader.api26_3.playSoundAt
-import org.ohmyloader.api26_3.setBlockAt
-import org.ohmyloader.api26_3.spawnDustParticles
-import org.ohmyloader.api26_3.teleport
+import org.ohmyloader.api26_3.*
 
 /**
  * The gallery — the dimension the kit declares, and the place where its clock and timeline are observable. The
@@ -87,7 +72,7 @@ object PlayGallery {
                 "loaded=${gallery.isLoaded(ENTER_AT)} forced=${gallery.isForceLoaded(ENTER_AT)} " +
                 "border=${gallery.worldBorder.isWithinBounds(ENTER_AT)} serverTick=${gallery.server.tickCount}"
         }
-        val here = player.level() as? ServerLevel ?: return "moved, but not onto a server level"
+        val here = player.level()
         here.playSoundAt("minecraft:block.portal.travel", player.x, player.y, player.z, 0.5f, 1.2f)
         val reachable = here.blockDataAt(WAYSTONE_AT) != null
         return "in ${here.dimensionId} at ${describe(player)}, waystone data reachable=$reachable"

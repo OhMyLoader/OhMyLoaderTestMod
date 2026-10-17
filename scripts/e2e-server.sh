@@ -11,7 +11,7 @@
 #      OML_E2E_EXPECT_EXTRA (gate self-test: an expectation nothing reports, so a working gate must fail),
 #      OML_E2E_SEED (oml-e2e, the world seed a generated world is created from).
 set -uo pipefail
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/.." || exit
 
 TICKS="${OML_E2E_TICKS:-200}"
 READY_TIMEOUT="${OML_E2E_READY_TIMEOUT:-240}"

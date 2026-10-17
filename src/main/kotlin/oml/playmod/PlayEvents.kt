@@ -2,28 +2,11 @@ package oml.playmod
 
 import net.minecraft.server.level.ServerLevel
 import net.minecraft.world.InteractionHand
-import org.ohmyloader.api.tick.OMLSide
 import org.ohmyloader.api.tick.OMLScheduler
+import org.ohmyloader.api.tick.OMLSide
 import org.ohmyloader.api.tick.OMLTask
-import org.ohmyloader.api26_3.OMLGame
-import org.ohmyloader.api26_3.blockDataAt
-import org.ohmyloader.api26_3.blockId
-import org.ohmyloader.api26_3.blockIdAt
-import org.ohmyloader.api26_3.broadcastMessage
-import org.ohmyloader.api26_3.clockInstance
-import org.ohmyloader.api26_3.currentScreen
-import org.ohmyloader.api26_3.dimensionId
-import org.ohmyloader.api26_3.drawText
+import org.ohmyloader.api26_3.*
 import org.ohmyloader.api26_3.event.Events
-import org.ohmyloader.api26_3.grantPermissionNode
-import org.ohmyloader.api26_3.hasEffect
-import org.ohmyloader.api26_3.itemId
-import org.ohmyloader.api26_3.playSound
-import org.ohmyloader.api26_3.playSoundAt
-import org.ohmyloader.api26_3.scaledHeight
-import org.ohmyloader.api26_3.scaledWidth
-import org.ohmyloader.api26_3.sendSystemMessage
-import org.ohmyloader.api26_3.spawnDustParticles
 
 /**
  * What the kit does when the game moves. Every subscription is a reaction a player can see or feel, and a handler
@@ -109,7 +92,7 @@ object PlayEvents {
 
     private fun interaction() {
         Events.BLOCK_USED.register { event ->
-            val level = event.player.level() as? ServerLevel ?: return@register
+            val level = event.player.level()
             val position = event.hit.blockPos
             when (level.blockIdAt(position)) {
                 PlayMachines.WAYSTONE -> {
@@ -166,7 +149,7 @@ object PlayEvents {
 
     private fun combat() {
         Events.ENTITY_ATTACK.register { event ->
-            val level = event.player.level() as? ServerLevel ?: return@register
+            val level = event.player.level()
             level.playSoundAt(
                 "minecraft:entity.arrow.hit_player",
                 event.target.x, event.target.y + 0.5, event.target.z, 0.3f, 1.6f, "player",
@@ -214,7 +197,7 @@ object PlayEvents {
             if (!PlayState.overlayVisible) return@register
             val client = OMLGame.client ?: return@register
             PlayOverlay.lines(client.scaledWidth, client.scaledHeight)
-                .forEach { (x, y, text) -> event.graphics.drawText(text, x, y) }
+                .forEach { [x, y, text] -> event.graphics.drawText(text, x, y) }
         }
     }
 }
