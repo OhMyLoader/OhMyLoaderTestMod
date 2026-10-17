@@ -3029,10 +3029,10 @@ object WorldProbe {
             var handle: OMLTask? = null
             Thread {
                 run.callerThread = Thread.currentThread().name
-                OMLScheduler.schedule(run.side, delayTicks = 1) {
+                OMLScheduler.schedule(run.side, delayTicks = SCHED_ONE_SHOT_DELAY - 1) {
                     error("oml-e2e deliberate throw — the queue is documented to survive it")
                 }
-                OMLScheduler.schedule(run.side, delayTicks = 2) {
+                OMLScheduler.schedule(run.side, delayTicks = SCHED_ONE_SHOT_DELAY) {
                     run.oneShotRan = true
                     run.oneShotAt = run.advances
                     run.bodyThread = Thread.currentThread().name
@@ -3050,19 +3050,21 @@ object WorldProbe {
             run.done = true
             E2E.check(run.name, false, "the cancelled repeat kept running (${run.repeatRuns} times)")
         } else if (run.afterCancel >= 6) {
-            // One advance of slack either way: this counter and the queue's own tick advance inside the
-            // same game tick, and which comes first is not something the probe gets to choose.
-            val onTime = run.oneShotAt - run.enqueuedAt in 2..3
+            // The queue's own tick and this counter advance inside the same game tick, and their order in
+            // that tick is not observable from here, so a delay of N reads as N or N-1. What the band is
+            // for: 0 would be a task run in the advance it was queued in, and never arriving at all is
+            // caught by the give-up below.
+            val onTime = run.oneShotAt - run.enqueuedAt in (SCHED_ONE_SHOT_DELAY - 1)..SCHED_ONE_SHOT_DELAY
             val onSideThread = run.bodyThread == run.driverThread && run.bodyThread != run.callerThread
             run.done = true
             E2E.check(
                 run.name,
                 run.oneShotRan && run.repeatRuns == 3 && onTime && onSideThread,
-                "one-shot=$run.oneShotRan after ${run.oneShotAt - run.enqueuedAt} advances " +
-                    "(queued at $run.enqueuedAt, ran at $run.oneShotAt — the contract is 2 or 3); " +
-                    "repeat=${run.repeatRuns} waited=${run.advances - run.enqueuedAt} ticks; " +
-                    "body thread '${run.bodyThread}' against the driver '${run.driverThread}' and the " +
-                    "enqueueing '${run.callerThread}'",
+                "one-shot=${run.oneShotRan} after ${run.oneShotAt - run.enqueuedAt} advances " +
+                    "(queued at ${run.enqueuedAt}, ran at ${run.oneShotAt}; the contract is " +
+                    "${SCHED_ONE_SHOT_DELAY - 1}..$SCHED_ONE_SHOT_DELAY); repeat=${run.repeatRuns} " +
+                    "waited=${run.advances - run.enqueuedAt} ticks; body thread '${run.bodyThread}' " +
+                    "against the driver '${run.driverThread}' and the enqueueing '${run.callerThread}'",
             )
         } else if (run.advances - run.enqueuedAt > GIVE_UP_TICKS) {
             run.done = true
@@ -3074,6 +3076,9 @@ object WorldProbe {
             )
         }
     }
+
+    /** The one-shot's delay; the deliberate thrower is queued one tick ahead of it, in the same queue. */
+    private const val SCHED_ONE_SHOT_DELAY = 2
 
     private class SchedulerRun(val side: OMLSide, val name: String) {
         var enqueued = false
