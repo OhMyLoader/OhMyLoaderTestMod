@@ -142,7 +142,8 @@ jobs:
 
   e2e-client:
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    # Two software-rendered boots now (self-test + real run) plus the two mavenLocal publications.
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
       - uses: actions/checkout@v7
@@ -188,6 +189,30 @@ jobs:
       - run: ./scripts/check-oml-version.sh
       - run: ./gradlew -p OhMyLoader publishToMavenLocal
       - run: ./gradlew -p OhMyLoaderGradle publishToMavenLocal
+      # The client gate had never been *proved* able to fail: the server job runs this self-test and the
+      # client job did not, so a client-side green rested on nobody having watched it go red. Costly by
+      # nature — an expectation nothing reports still needs the client to boot and join, which is the whole
+      # run. The save generated here is reused by the real run below, so the second boot is the only extra.
+      - name: The gate must be able to fail
+        env:
+          LIBGL_ALWAYS_SOFTWARE: '1'
+          MESA_LOADER_DRIVER_OVERRIDE: llvmpipe
+          OML_E2E_EXPECT_EXTRA: gate.self-test.never-reported
+          OML_E2E_TIMEOUT: '900'
+          OML_E2E_WATCHDOG: '840'
+          OML_E2E_GRACE_SECONDS: '720'
+          OML_E2E_LOG: build/e2e-client-selftest.log
+        run: |
+          if xvfb-run -a -s "-screen 0 1280x720x24" ./scripts/e2e-client.sh; then
+            echo "::error::the client E2E gate passed a run that was supposed to fail"
+            exit 1
+          fi
+          # A red exit alone is not proof: a resolution failure or a crash exits 1 as well. The self-test
+          # counts only when the log names the expectation nothing reported, under a FAIL verdict.
+          grep -E '\[OML-E2E\] FAILED gate\.self-test\.never-reported \(never reported\)' \
+            build/e2e-client-selftest.log
+          grep -E '\[OML-E2E\] RESULT FAIL' build/e2e-client-selftest.log
+          echo "client gate self-test passed (the verdict reported the expectation nothing reported)"
       - name: Client end-to-end (main menu, then self-quit)
         env:
           LIBGL_ALWAYS_SOFTWARE: '1'
@@ -206,4 +231,6 @@ jobs:
         with:
           name: e2e-client-logs
           path: build/e2e-client*.log
-          if-no-files-found: ignore
+          # `ignore` here meant a client run that produced no log at all still looked green: the server
+          # job requires its log, and the verdict line is the only evidence either gate leaves behind.
+          if-no-files-found: error
