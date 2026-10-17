@@ -28,9 +28,10 @@ tasks.withType<Test>().configureEach {
     useJUnitPlatform()
 }
 
-// The pin must match the version the loader was published with; a mismatch fails resolution with
-// a clear "could not find" instead of silently resolving to whatever is newest.
-val omlVersion = providers.gradleProperty("oml_version").getOrElse("0.1.0-SNAPSHOT")
+// One home for the pin: gradle.properties. settings.gradle.kts already requires the property, so a
+// fallback literal here could only paper over a missing line with a stale version that resolves —
+// and scripts/check-oml-version.sh compares it against the loader and plugin checkouts.
+val omlVersion = providers.gradleProperty("oml_version").get()
 
 // The version under test. Switch with -Poml.gameVersion=<version>.
 val gameVersion = providers.gradleProperty("oml.gameVersion").orElse("26.3").get()
