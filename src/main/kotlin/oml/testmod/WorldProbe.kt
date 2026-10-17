@@ -217,9 +217,13 @@ object WorldProbe {
     private const val CLOCK_PAUSE_WINDOW = 3
     private const val CLOCK_WINDOW_LIMIT = 100
 
-    /** How far ahead of the client's copy the sync probe writes, and how near it has to land. */
+    /**
+     * How far ahead of both copies the sync probe writes, and how long it waits for the packet. The jump
+     * is what makes the arrival readable: local counting inside the wait window cannot come near it, so
+     * "the client is at or past the written position" is the evidence, and a ceiling one jump wide keeps
+     * a value that merely wandered past the target from passing for it.
+     */
     private const val CLOCK_SYNC_JUMP = 5000L
-    private const val CLOCK_SYNC_TOLERANCE = 5L
     private const val CLOCK_SYNC_WAIT_TICKS = 60
 
     /** A rule that exists in every vanilla dimension, so the flip-and-restore has a guaranteed subject. */
@@ -360,6 +364,7 @@ object WorldProbe {
     /** The clock position the client-sync probe wrote, and what it held before the probe. */
     private var clockSyncTarget = 0L
     private var clockSyncPrevious = 0L
+    private var clockSyncClientBefore = 0L
 
     /** Server tick the client-sync probe wrote on, the start of the window it may take to arrive. */
     private var clockSyncTick = -1
@@ -1764,12 +1769,20 @@ object WorldProbe {
             1 -> 0L
             else -> elapsed.toLong()
         }
-        if (advanced != expected) {
+        // The window's two ends are sampled inside a tick each, and the rate multiplies that slack, so the
+        // band is ±rate — the same allowance the mod's own clock probe makes. Exact equality asked both
+        // samples to land on the same tick boundary, which is the scheduler's business, not arithmetic.
+        val slack = when (clockRatePhase) {
+            0 -> 2L
+            1 -> 0L
+            else -> 1L
+        }
+        if (advanced !in (expected - slack)..(expected + slack)) {
             E2E.check(
                 "api.clock_rate_and_pause",
                 false,
                 "phase $clockRatePhase (rate ${instance.rate()}, paused=${instance.isPaused()}) counted $advanced " +
-                    "in $elapsed game ticks, the game's own arithmetic wants $expected",
+                    "in $elapsed game ticks, the game's own arithmetic wants $expected ±$slack",
             )
             clockRatePhase = 3
             return true
@@ -1824,7 +1837,10 @@ object WorldProbe {
         val tick = server.tickCount
         if (clockSyncPhase == 0) {
             clockSyncPrevious = instance.totalTicks()
-            clockSyncTarget = clockSyncPrevious + CLOCK_SYNC_JUMP
+            clockSyncClientBefore = clientInstance.totalTicks()
+            // Ahead of *both* copies: whichever one is further along decides the jump, so no copy can
+            // reach the target by counting on its own inside the wait window.
+            clockSyncTarget = maxOf(clockSyncPrevious, clockSyncClientBefore) + CLOCK_SYNC_JUMP
             if (!manager.applyTotalTicks(clock, clockSyncTarget)) {
                 E2E.check("api.clock_client_sync", false, "the server refused the write of $clockSyncTarget")
                 clockSyncPhase = 2
@@ -1835,16 +1851,22 @@ object WorldProbe {
             return false
         }
         if (clockSyncPhase != 1) return true
-        // The client's manager is `ClientClockManager`: it receives time and has no write method to refuse.
+        // The client's manager is `ClientClockManager`: it receives time and has no write method to
+        // refuse, and it advances its own copy between the packets (that copy is what renders the sky).
+        // So arrival is "at or past what was written", with one jump of headroom as the ceiling — the
+        // old ±5 window asserted the read landed in the same frame as the packet, which is the
+        // renderer's schedule, not the loader's, and it failed with the copy 59 ticks past the target.
         val seen = clientInstance.totalTicks()
-        val arrived = seen >= clockSyncTarget && seen <= clockSyncTarget + CLOCK_SYNC_TOLERANCE
+        val serverAtRead = instance.totalTicks()
+        val arrived = seen >= clockSyncTarget && seen < clockSyncTarget + CLOCK_SYNC_JUMP
         if (arrived || tick - clockSyncTick > CLOCK_SYNC_WAIT_TICKS) {
             manager.applyTotalTicks(clock, clockSyncPrevious)
             E2E.check(
                 "api.clock_client_sync",
                 arrived,
                 "wrote $clockSyncTarget on the server; the client read $seen after ${tick - clockSyncTick} " +
-                    "ticks (the server stands at ${instance.totalTicks()})",
+                    "ticks (its own copy stood at $clockSyncClientBefore before the write, the server at " +
+                    "$serverAtRead at the read)",
             )
             clockSyncPhase = 2
             return true
