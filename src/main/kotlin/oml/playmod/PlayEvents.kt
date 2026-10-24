@@ -72,7 +72,7 @@ object PlayEvents {
 
     private fun world() {
         Events.LEVEL_TICK.register { event ->
-            val level = event.level as? ServerLevel ?: return@register
+            val level = event.level.serverLevel ?: return@register
             if (level.dimensionId != PlayGallery.DIMENSION_ID || level.server.tickCount % 200 != 0) return@register
             val instance = level.clockInstance ?: return@register
             level.blockDataAt(PlayGallery.WAYSTONE_AT)?.putLong("gallery_beat", instance.totalTicks())
@@ -159,7 +159,7 @@ object PlayEvents {
         Events.LIVING_HURT.register { event ->
             if (!event.source.type().msgId().contains("shock")) return@register
             PlayState.shocksDealt++
-            val level = event.entity.level() as? ServerLevel ?: return@register
+            val level = event.entity.serverLevel ?: return@register
             level.spawnDustParticles(0xEAE86D, 1.1f, event.entity.x, event.entity.y + 0.6, event.entity.z, 8)
         }
         Events.LIVING_DIED.register { event ->

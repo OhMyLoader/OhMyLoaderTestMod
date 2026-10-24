@@ -2,7 +2,6 @@ package oml.techmod
 
 import net.minecraft.core.BlockPos
 import net.minecraft.world.entity.player.Player
-import net.minecraft.world.level.Level
 import org.ohmyloader.api.Mod
 import org.ohmyloader.api.ModContext
 import org.ohmyloader.api.OMLModInitializer
@@ -18,6 +17,7 @@ import org.ohmyloader.api26_3.itemIn
 import org.ohmyloader.api26_3.itemId
 import org.ohmyloader.api26_3.remove
 import org.ohmyloader.api26_3.sendSystemMessage
+import org.ohmyloader.api26_3.serverLevel
 
 /**
  * The reference technology mod: the sample that has to stay inside the official API surface — the
@@ -125,7 +125,7 @@ class TechMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider {
             onHit { event ->
                 if (event.isClient) return@onHit
                 val player = event.player as? Player ?: return@onHit
-                val level = event.level as? Level ?: return@onHit
+                val level = event.serverLevel ?: return@onHit
                 val data = level.blockDataAt(BlockPos(event.x, event.y, event.z)) ?: return@onHit
                 val output = data.getItemStack("output")
                 if (output != null) {

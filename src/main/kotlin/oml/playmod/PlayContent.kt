@@ -3,6 +3,9 @@ package oml.playmod
 import net.minecraft.core.BlockPos
 import org.ohmyloader.api.content.ContentRegistry
 
+import net.minecraft.world.entity.LivingEntity
+import org.ohmyloader.api26_3.*
+
 /**
  * The whole of what the kit puts into the world, declared once at initialization. Mining, crafting, a machine
  * that keeps score, and a dimension to travel to — the gameplay loop a player actually walks through, on the
@@ -64,10 +67,10 @@ object PlayContent {
             blastResistance = 12.0f
             dropsRequireCorrectTool = true
             onStepOn { event ->
-                if (!event.isClient) PlayMachines.touched(event.level, event.x, event.y, event.z, event.entity)
+                if (!event.isClient) PlayMachines.touched(event.serverLevel ?: return@onStepOn, event.x, event.y, event.z, event.stepper ?: return@onStepOn)
             }
             onHit { event ->
-                if (!event.isClient) PlayMachines.punched(event.level, event.x, event.y, event.z, event.player)
+                if (!event.isClient) PlayMachines.punched(event.serverLevel ?: return@onHit, event.x, event.y, event.z, event.hitBy ?: return@onHit)
             }
             blockEntity {
                 tick { event -> PlayMachines.tickLiteBlock(event) }
@@ -84,7 +87,7 @@ object PlayContent {
             hardness = 0.8f
             blastResistance = 4.0f
             onStepOn { event ->
-                if (!event.isClient) PlayMachines.launch(event.level, event.x, event.y, event.z, event.entity)
+                if (!event.isClient) PlayMachines.launch(event.serverLevel ?: return@onStepOn, event.x, event.y, event.z, event.stepper as? LivingEntity ?: return@onStepOn)
             }
             blockEntity {
                 tick { event -> PlayMachines.rearmPad(event) }

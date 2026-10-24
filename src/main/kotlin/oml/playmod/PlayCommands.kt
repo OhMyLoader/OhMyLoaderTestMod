@@ -1,6 +1,5 @@
 package oml.playmod
 
-import net.minecraft.commands.CommandSourceStack
 import net.minecraft.server.level.ServerLevel
 import net.minecraft.server.level.ServerPlayer
 import org.ohmyloader.api.command.OMLArgumentType
@@ -41,7 +40,7 @@ object PlayCommands {
                 subcommand("charge") { executes { withPlayer(it) { p -> chargePad(p) } } }
                 argument("steps", OMLArgumentType.INTEGER) { steps ->
                     executes { source ->
-                        val who = require(source) ?: return@executes
+                        val who = source.player ?: return@executes
                         source.reply(chargePad(who, source[steps]))
                     }
                 }
@@ -56,7 +55,7 @@ object PlayCommands {
                 executes { withPlayer(it) { p -> clockStatus(p) } }
                 argument("seconds", OMLArgumentType.INTEGER) { seconds ->
                     executes { source ->
-                        val who = require(source) ?: return@executes
+                        val who = source.player ?: return@executes
                         source.reply(clockTo(who, source[seconds]))
                     }
                 }
@@ -242,19 +241,19 @@ object PlayCommands {
     }
 
     private fun zap(source: OMLCommandSource, name: String): String {
-        val player = require(source) ?: return "no player"
+        val player = source.player ?: return "no player"
         val level = player.level()
         val target = level.entitiesOfType("minecraft:$name").firstOrNull() as? net.minecraft.world.entity.LivingEntity
             ?: return "no living $name near ${level.dimensionId}"
         val hurt = target.hurt(PlayContent.id(PlayContent.DAMAGE_TYPE), 3.0f, player)
-        val shocked = (source.platform as? CommandSourceStack)?.hasPermissionNode(KEEPER_NODE) == true
+        val shocked = source.player?.hasPermissionNode(KEEPER_NODE) == true
         level.spawnDustParticles(0xEAE86D, 1.2f, target.x, target.y + 0.4, target.z, 12)
         if (hurt) player.playSound("minecraft:entity.lightning_bolt.thunder", 0.8f, 1.1f)
         return "zapped $name=$hurt (health ${target.health}/${target.maxHealth}, node held=$shocked)"
     }
 
     private fun summon(source: OMLCommandSource, type: String, rawCount: Int): String {
-        val player = require(source) ?: return "no player"
+        val player = source.player ?: return "no player"
         val level = player.level()
         val count = rawCount.coerceIn(1, 8)
         val spawned = (1..count).mapNotNull {
@@ -274,7 +273,7 @@ object PlayCommands {
     }
 
     private fun weather(source: OMLCommandSource, kind: String): String {
-        val player = require(source) ?: return "no player"
+        val player = source.player ?: return "no player"
         val level = player.level()
         return when (kind) {
             "clear" -> described(level, level.setWeather(raining = false, thundering = false, durationTicks = 1200), "clear")
@@ -289,7 +288,7 @@ object PlayCommands {
             "over ${level.dimensionId}"
 
     private fun rule(source: OMLCommandSource, name: String, value: String): String {
-        val player = require(source) ?: return "no player"
+        val player = source.player ?: return "no player"
         val id = if (name.contains(':')) name else "minecraft:$name"
         val was = server.gameRuleValue(id) ?: return "no game rule $id"
         val wrote = server.setGameRule(id, value)
@@ -368,18 +367,13 @@ object PlayCommands {
 
     /** A leaf that needs a player: the console gets a refusal instead of a stack trace. */
     private fun withPlayer(source: OMLCommandSource, body: (ServerPlayer) -> String) {
-        val player = require(source)
+        val player = source.player
         if (player == null) {
             source.replyError("this leaf needs a player in the world")
         } else {
             source.reply(body(player))
         }
     }
-
-    /** The server's live instance for whoever sent this, not whichever handle the game happens to carry in the
-     * source: after a death the game replaces the instance, and a removed one answers nothing. */
-    private fun require(source: OMLCommandSource): ServerPlayer? =
-        (source.platform as? CommandSourceStack)?.player?.let { server.playerList.getPlayer(it.uuid) }
 
     private fun worldSpawnPosition(): String = server.worldSpawn.pos().toString()
 
@@ -411,20 +405,20 @@ object PlayCommands {
     }
 
     private fun keeper(source: OMLCommandSource, hold: Boolean): String {
-        val who = require(source) ?: return "no player"
+        val who = source.player ?: return "no player"
         val changed = if (hold) who.grantPermissionNode(KEEPER_NODE) else who.revokePermissionNode(KEEPER_NODE)
         return "keeper node ${if (hold) "granted" else "revoked"} (changed=$changed), " +
             "overrides now ${who.permissionNodeOverrides}"
     }
 
     private fun keeperStatus(source: OMLCommandSource): String {
-        val who = require(source) ?: return "no player"
+        val who = source.player ?: return "no player"
         return "keeper held=${who.hasPermissionNode(KEEPER_NODE)}, overrides ${who.permissionNodeOverrides}, " +
             "command level ${who.permissionLevel}"
     }
 
     private fun adminStatus(source: OMLCommandSource): String {
-        val who = require(source) ?: return "operator readout needs a player"
+        val who = source.player ?: return "operator readout needs a player"
         return "level ${who.permissionLevel}, overrides ${who.permissionNodeOverrides}, " +
             "kit node held=${who.hasPermissionNode(KEEPER_NODE)}, servers=${server.onlinePlayers.size} online"
     }

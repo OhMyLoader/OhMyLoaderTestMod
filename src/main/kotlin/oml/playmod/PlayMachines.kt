@@ -26,38 +26,32 @@ object PlayMachines {
         data.putInt("uptime", uptime)
         if (uptime % 100 != 0) return
         data.putInt("pulses", data.getInt("pulses") + 1)
-        val level = event.level as? ServerLevel ?: return
+        val level = event.serverLevel ?: return
         level.spawnDustParticles(0x63B400, 1.4f, event.x + 0.5, event.y + 1.2, event.z + 0.5, 6)
     }
 
-    fun touched(level: Any, x: Int, y: Int, z: Int, entity: Any) {
-        val serverLevel = level as? ServerLevel ?: return
-        val who = entity as? Entity ?: return
-        val data = serverLevel.blockDataAt(BlockPos(x, y, z)) ?: return
+    fun touched(level: ServerLevel, x: Int, y: Int, z: Int, entity: Entity) {
+        val data = level.blockDataAt(BlockPos(x, y, z)) ?: return
         val visits = data.getInt("visits") + 1
         data.putInt("visits", visits)
-        data.putString("last_stepper", labelOf(who))
-        serverLevel.playSoundAt("minecraft:block.note_block.pling", x + 0.5, y + 1.0, z + 0.5, 0.6f, 1.4f)
-        PlayState.overlayLine = "${labelOf(who)} stepped on it; visit $visits"
+        data.putString("last_stepper", labelOf(entity))
+        level.playSoundAt("minecraft:block.note_block.pling", x + 0.5, y + 1.0, z + 0.5, 0.6f, 1.4f)
+        PlayState.overlayLine = "${labelOf(entity)} stepped on it; visit $visits"
     }
 
-    fun punched(level: Any, x: Int, y: Int, z: Int, player: Any) {
-        val serverLevel = level as? ServerLevel ?: return
-        val who = player as? Player ?: return
-        val data = serverLevel.blockDataAt(BlockPos(x, y, z)) ?: return
-        data.putString("last_punch", who.gameProfile.name)
-        serverLevel.spawnDustParticles(0xD7FF5E, 1.0f, x + 0.5, y + 0.9, z + 0.5, 4)
-        PlayState.noteActivation(who)
+    fun punched(level: ServerLevel, x: Int, y: Int, z: Int, player: Player) {
+        val data = level.blockDataAt(BlockPos(x, y, z)) ?: return
+        data.putString("last_punch", player.gameProfile.name)
+        level.spawnDustParticles(0xD7FF5E, 1.0f, x + 0.5, y + 0.9, z + 0.5, 4)
+        PlayState.noteActivation(player)
     }
 
-    fun launch(level: Any, x: Int, y: Int, z: Int, entity: Any) {
-        val serverLevel = level as? ServerLevel ?: return
-        val who = entity as? LivingEntity ?: return
+    fun launch(level: ServerLevel, x: Int, y: Int, z: Int, entity: LivingEntity) {
         val position = BlockPos(x, y, z)
-        val data = serverLevel.blockDataAt(position) ?: return
+        val data = level.blockDataAt(position) ?: return
         val charge = data.getInt("charge")
         if (charge <= 0) {
-            serverLevel.playSoundAt(
+            level.playSoundAt(
                 "minecraft:block.note_block.didgeridoo", x + 0.5, y + 0.6, z + 0.5, 0.5f, 0.6f,
             )
             return
@@ -65,14 +59,14 @@ object PlayMachines {
         data.putInt("charge", charge - 1)
         data.putInt("launches", data.getInt("launches") + 1)
         data.putInt("rearm", 0)
-        who.setDeltaMovement(who.deltaMovement.x, PlayConfig.padLaunch, who.deltaMovement.z)
-        who.applyEffect("minecraft:slow_falling", 140)
-        serverLevel.spawnParticles(
+        entity.setDeltaMovement(entity.deltaMovement.x, PlayConfig.padLaunch, entity.deltaMovement.z)
+        entity.applyEffect("minecraft:slow_falling", 140)
+        level.spawnParticles(
             "minecraft:cloud", x + 0.5, y + 1.1, z + 0.5, 12, 0.3, 0.15, 0.3, 0.02,
         )
-        serverLevel.playSoundAt("minecraft:entity.generic.swim", x + 0.5, y + 1.0, z + 0.5, 0.7f, 1.6f)
-        PlayState.padsFired.merge(PlayState.padKey(serverLevel.dimensionId, position), 1) { old, _ -> old + 1 }
-        PlayState.overlayLine = "thrown: ${labelOf(who)}, ${data.getInt("charge")} charges left"
+        level.playSoundAt("minecraft:entity.generic.swim", x + 0.5, y + 1.0, z + 0.5, 0.7f, 1.6f)
+        PlayState.padsFired.merge(PlayState.padKey(level.dimensionId, position), 1) { old, _ -> old + 1 }
+        PlayState.overlayLine = "thrown: ${labelOf(entity)}, ${data.getInt("charge")} charges left"
     }
 
     /** A pad takes one charge back every `pad_rearm_ticks`, which is the machine's whole job. */
@@ -90,7 +84,7 @@ object PlayMachines {
         }
         data.putInt("charge", charge + 1)
         data.remove("rearm")
-        val level = event.level as? ServerLevel ?: return
+        val level = event.serverLevel ?: return
         level.spawnDustParticles(0x7CE0A0, 0.8f, event.x + 0.5, event.y + 0.7, event.z + 0.5, 3)
     }
 
@@ -123,7 +117,7 @@ object PlayMachines {
 
     /** Whether the block under a player's feet is one of the kit's, with the data to prove it. */
     fun machineUnder(player: Player): Pair<ServerLevel, BlockPos>? {
-        val level = player.level() as? ServerLevel ?: return null
+        val level = player.serverLevel ?: return null
         val below = player.blockPosition().below()
         val id = level.blockIdAt(below)
         if (id != PAD && id != LITE_BLOCK && id != WAYSTONE) return null
