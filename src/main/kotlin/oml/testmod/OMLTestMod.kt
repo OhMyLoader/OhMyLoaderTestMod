@@ -35,6 +35,7 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider, OM
     private var serverTicks = 0
     private var frameEvents = 0
     private var guiEvents = 0
+    private var menuEvents = 0
     private var probeAttempts = 0
     private var componentsReadOnce = false
 
@@ -275,6 +276,8 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider, OM
                     "api.clock_client_sync",
                     "api.world_container",
                     "api.player_opened_menu",
+                    "event.menu_opened",
+                    "event.menu_closed",
                     "api.player_equipment",
                     "scheduler.server_task",
                     "scheduler.client_task",
@@ -363,6 +366,19 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider, OM
             // Delivery of the loader's own sends is the verdict behind api.server_broadcast.
             WorldProbe.observeChat(event.message)
             println("[oml_testmod] ChatReceivedEvent: \"${event.message}\"")
+        }
+
+        // The menu hooks fire server-side; the E2E drives them through WorldProbe's chest probe.
+        Events.MENU_OPEN.register { event ->
+            E2E.hit("event.menu_opened")
+            if (menuEvents < 3) {
+                menuEvents++
+                println("[oml_testmod] MenuOpenEvent (first 3): player=${event.player.scoreboardName}, title=${event.menuTitle}")
+            }
+        }
+
+        Events.MENU_CLOSED.register { _ ->
+            E2E.hit("event.menu_closed")
         }
 
         // The HUD draw surface arrives once per frame while a world is loaded (see GameEvents).
