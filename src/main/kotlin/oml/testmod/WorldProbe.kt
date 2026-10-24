@@ -279,7 +279,7 @@ object WorldProbe {
     private val WEATHER_DRIVE = listOf(false to false, true to true, false to false)
 
     /** A dedicated server never boots a client, so the game's own client instance is the side test. */
-    private val dedicated: Boolean = OMLGame.client == null
+    private val dedicated: Boolean get() = isServerSide()
 
     /** Unique per run: a chat line from an earlier run must not satisfy the delivery check. */
     private val broadcastMarker = "oml-e2e-broadcast-${System.nanoTime()}"

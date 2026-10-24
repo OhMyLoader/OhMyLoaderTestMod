@@ -225,9 +225,6 @@ object E2E {
         }
     }
 
-    /** A dedicated server never boots a client, so the game's own client instance is the side test. */
-    private fun isServerSide(): Boolean = OMLGame.client == null
-
     /** Test hook: forget every declaration and observation, so each case starts from an empty verdict. */
     internal fun resetForTests() {
         synchronized(lock) {

@@ -367,7 +367,6 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider, OM
         if (isServerSide()) println("[oml_testmod] running as the dedicated server")
     }
 
-    private fun isServerSide(): Boolean = OMLGame.client == null
 
     /**
      * In-game data-component probe: reads [test_sword] back out of `BuiltInRegistries.ITEM` and its
