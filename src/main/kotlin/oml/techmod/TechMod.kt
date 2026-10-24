@@ -1,5 +1,8 @@
 package oml.techmod
 
+import net.minecraft.core.BlockPos
+import net.minecraft.world.entity.player.Player
+import net.minecraft.world.level.Level
 import org.ohmyloader.api.Mod
 import org.ohmyloader.api.ModContext
 import org.ohmyloader.api.OMLModInitializer
@@ -8,9 +11,18 @@ import org.ohmyloader.api.command.OMLCommandProvider
 import org.ohmyloader.api.command.OMLCommandRegistry
 import org.ohmyloader.api.content.ContentRegistry
 import org.ohmyloader.api.content.OMLContentProvider
+import org.ohmyloader.api.content.OMLDataItemStack
+import org.ohmyloader.api26_3.blockDataAt
+import org.ohmyloader.api26_3.giveItem
+import org.ohmyloader.api26_3.itemIn
+import org.ohmyloader.api26_3.itemId
+import org.ohmyloader.api26_3.remove
+import org.ohmyloader.api26_3.sendSystemMessage
 
 /**
- * The reference technology mod: the sample that has to stay entirely inside `oml-api`.
+ * The reference technology mod: the sample that has to stay inside the official API surface — the
+ * version-independent `oml-api` plus the version-facing `oml-api-26_3` extensions — never the
+ * `platform` escape hatch.
  *
  * Two rules when editing this file: never touch the `platform` escape hatch, and record every API
  * gap met here in README-TECHMOD.md's gap list instead of working around it inside the mod. Parts
@@ -72,7 +84,7 @@ class TechMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider {
             registry.declareItem(dust)
         }
 
-        // Plate: ingot pressed. Missing: pressing recipe — the machine exists, taking its input does not
+        // Plate: ingot pressed — the press machine's production path runs on OMLBlockData item stacks
         for (plate in PLATE_ITEMS) {
             registry.declareItem(plate)
         }
@@ -83,21 +95,55 @@ class TechMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider {
         registry.declareTag("minecraft:damage_type", "oml_testmod:melting_causes") { element("crush") }
 
         // The press exercises the BlockEntity API: its tick belongs to the block rather than to a
-        // global SERVER_TICK handler, and its progress persists in OMLBlockData with the world.
+        // global SERVER_TICK handler, and its progress, input and output persist in OMLBlockData with
+        // the world. The production path is the machine's own: hit the press holding an ingot to load
+        // it, the tick presses, hit it again with an empty hand to take the plate.
         registry.declareBlock("press") {
             hardness = 3.5f
             blastResistance = 6.0f
             dropsRequireCorrectTool = true
             blockEntity {
                 tick { event ->
+                    val input = event.data.getItemStack("input") ?: return@tick
                     val progress = event.data.getInt("progress") + 1
                     if (progress >= PRESS_TICKS_PER_CYCLE) {
+                        val plate = input.itemId.replace("_ingot", "_plate")
+                        val existing = event.data.getItemStack("output")
+                        event.data.putItemStack(
+                            "output",
+                            if (existing?.itemId == plate) OMLDataItemStack(plate, existing.count + 1)
+                            else OMLDataItemStack(plate, 1),
+                        )
+                        event.data.remove("input")
                         event.data.putInt("progress", 0)
-                        println("[techmod] press at ${event.x}/${event.y}/${event.z}: cycle complete")
+                        println("[techmod] press at ${event.x}/${event.y}/${event.z}: pressed a $plate")
                     } else {
                         event.data.putInt("progress", progress)
                     }
                 }
+            }
+            onHit { event ->
+                if (event.isClient) return@onHit
+                val player = event.player as? Player ?: return@onHit
+                val level = event.level as? Level ?: return@onHit
+                val data = level.blockDataAt(BlockPos(event.x, event.y, event.z)) ?: return@onHit
+                val output = data.getItemStack("output")
+                if (output != null) {
+                    player.giveItem(output.itemId, output.count)
+                    data.remove("output")
+                    player.sendSystemMessage("[techmod] press yields ${output.count}x ${output.itemId}")
+                    return@onHit
+                }
+                if (data.getItemStack("input") != null) {
+                    player.sendSystemMessage("[techmod] press is already pressing")
+                    return@onHit
+                }
+                val held = player.itemIn("mainhand")?.itemId ?: return@onHit
+                val ingot = INGOT_ITEMS.firstOrNull { "techmod:$it" == held } ?: return@onHit
+                player.inventory.remove(held, 1)
+                data.putItemStack("input", OMLDataItemStack(held, 1))
+                data.putInt("progress", 0)
+                player.sendSystemMessage("[techmod] press loaded with $ingot")
             }
         }
         registry.declareShapedCrafting(
