@@ -190,17 +190,22 @@ jobs:
       - run: ./gradlew -p OhMyLoader publishToMavenLocal
       - run: ./gradlew -p OhMyLoaderGradle publishToMavenLocal
       # The client gate had never been *proved* able to fail: the server job runs this self-test and the
-      # client job did not, so a client-side green rested on nobody having watched it go red. Costly by
-      # nature — an expectation nothing reports still needs the client to boot and join, which is the whole
-      # run. The save generated here is reused by the real run below, so the second boot is the only extra.
+      # client job did not, so a client-side green rested on nobody having watched it go red. It costs a
+      # client boot but not a world: OML_E2E_NO_JOIN keeps the run on the title screen, where client
+      # ticks accrue exactly as they do in a world, so the tick budget expires in seconds and the
+      # never-reported expectation is judged at the quit — a full llvmpipe join would make this the
+      # most expensive step in the job for a fact one line of grep already settles.
       - name: The gate must be able to fail
         env:
           LIBGL_ALWAYS_SOFTWARE: '1'
           MESA_LOADER_DRIVER_OVERRIDE: llvmpipe
           OML_E2E_EXPECT_EXTRA: gate.self-test.never-reported
+          OML_E2E_NO_JOIN: '1'
           OML_E2E_TIMEOUT: '900'
           OML_E2E_WATCHDOG: '840'
-          OML_E2E_GRACE_SECONDS: '720'
+          # Title-screen boots under llvmpipe have taken minutes; the grace only has to outlive the
+          # boot, because the tick budget accrues from the first client tick and nothing can report.
+          OML_E2E_GRACE_SECONDS: '120'
           OML_E2E_LOG: build/e2e-client-selftest.log
         run: |
           if xvfb-run -a -s "-screen 0 1280x720x24" ./scripts/e2e-client.sh; then

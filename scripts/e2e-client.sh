@@ -14,7 +14,7 @@
 # Needs a display: wrap with `xvfb-run -a` on a headless machine (CI does).
 # Env: OML_E2E_TICKS (default 200), OML_E2E_TIMEOUT (420s), OML_E2E_LOG (build/e2e-client.log),
 #      OML_E2E_QUICKPLAY (default oml-e2e-world), OML_E2E_GRACE_SECONDS, OML_E2E_WATCHDOG,
-#      OML_E2E_EXPECT_EXTRA (gate self-test), OML_LOG_FILE.
+#      OML_E2E_EXPECT_EXTRA (gate self-test), OML_E2E_NO_JOIN (title-screen self-test), OML_LOG_FILE.
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit
 
@@ -25,9 +25,13 @@ WORLD="${OML_E2E_QUICKPLAY:-oml-e2e-world}"
 WORLD_DIR="run/client/saves/$WORLD"
 # The in-game watchdog fires before the outer one, so a stuck session reports why instead of being killed.
 WATCHDOG="${OML_E2E_WATCHDOG:-$((TIMEOUT - 30))}"
+# The gate self-test needs no world: its verdict is a planted expectation nothing ever reports, and
+# client ticks accrue on the title screen exactly as they do in a world — so booting straight to the
+# title and letting the budget expire proves the verdict can fail at a fraction of a full run's cost.
+NO_JOIN="${OML_E2E_NO_JOIN:-}"
 mkdir -p "$(dirname "$LOG")"
 
-if [ ! -d "$WORLD_DIR" ]; then
+if [ -z "$NO_JOIN" ] && [ ! -d "$WORLD_DIR" ]; then
   echo "e2e-client: no save at $WORLD_DIR — generating one with a server boot"
   # What this boot owes this script is a save directory: the server gate's verdict and exit code belong
   # to the server job, so a red code here must not read as "no world was generated".
@@ -63,7 +67,11 @@ echo 'onboardAccessibility:false' >> "$OPTIONS"
 echo 'pauseOnLostFocus:false' >> "$OPTIONS"
 
 E2E_ARGS=(-Poml.e2e.ticks="$TICKS" -Poml.e2e.timeoutSeconds="$WATCHDOG")
-E2E_ARGS+=(-Poml.quickPlay="$WORLD" -Poml.e2e.quickPlay=1)
+# A no-join self-test boots to the title screen: quickPlay is what would drive the join, and the
+# world-dependent probes are all null-guarded enough to sit out a session that never has one.
+if [ -z "$NO_JOIN" ]; then
+  E2E_ARGS+=(-Poml.quickPlay="$WORLD" -Poml.e2e.quickPlay=1)
+fi
 [ -n "${OML_E2E_GRACE_SECONDS:-}" ] && E2E_ARGS+=(-Poml.e2e.graceSeconds="$OML_E2E_GRACE_SECONDS")
 [ -n "${OML_E2E_EXPECT_EXTRA:-}" ] && E2E_ARGS+=(-Poml.e2e.expectExtra="$OML_E2E_EXPECT_EXTRA")
 [ -n "${OML_LOG_FILE:-}" ] && E2E_ARGS+=(-Poml.log.file="$OML_LOG_FILE")
