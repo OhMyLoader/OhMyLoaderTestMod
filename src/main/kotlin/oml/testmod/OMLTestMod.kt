@@ -38,6 +38,13 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider, OM
     private var probeAttempts = 0
     private var componentsReadOnce = false
 
+    /** Probe budget: after 1200 ticks (~60s) a retried probe gives up with a failing check instead of spinning forever. */
+    private fun probeGaveUp(attempts: Int, vararg checkIds: String): Boolean {
+        if (attempts <= 1200) return false
+        for (id in checkIds) E2E.check(id, false, "probe gave up after 1200 attempts (~60s of ticks)")
+        return true
+    }
+
     override fun declareNetwork(network: OMLNetworkRegistry) = NetworkProbe.declareNetwork(network)
 
     override fun declareCommands(commands: OMLCommandRegistry) {
@@ -380,9 +387,8 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider, OM
     private fun probeItemComponents() {
         if (componentsReadOnce) return
         probeAttempts++
-        if (probeAttempts > 1200) {
+        if (probeGaveUp(probeAttempts, "content.item_components")) {
             componentsReadOnce = true
-            E2E.check("content.item_components", false, "probe gave up after 1200 attempts (~60s of ticks)")
             return
         }
         runCatching {
@@ -497,11 +503,7 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider, OM
     private fun probeClientFeatures() {
         if (clientFeaturesProbed || ticks <= 5) return
         clientProbeAttempts++
-        if (clientProbeAttempts > 1200) {
-            E2E.check("keybind.registered", false, "probe gave up after 1200 attempts (~60s of ticks)")
-            E2E.check("creative.tab_registered", false, "probe gave up after 1200 attempts (~60s of ticks)")
-            return
-        }
+        if (probeGaveUp(clientProbeAttempts, "keybind.registered", "creative.tab_registered")) return
         runCatching {
             val minecraft = OMLGame.client ?: error("no client instance in this process")
 
