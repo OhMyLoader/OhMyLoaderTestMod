@@ -70,6 +70,10 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider, OM
         val block = registry.declareBlock("test_block")
         println("[oml_testmod] declared block: $block")
 
+        // Light-level declaration probe: the lamp materializes with an emissive state, which the
+        // content.light_level step reads back through the game's own light property.
+        registry.declareBlock("lamp") { lightLevel = 14 }
+
         // Data-component integration probe: a sword-ish item with native components. The adapter
         // materializes maxDurability into DataComponents.MAX_DAMAGE, the attack values into
         // DataComponents.ATTRIBUTE_MODIFIERS (ADD_VALUE modifiers on ATTACK_DAMAGE / ATTACK_SPEED,
@@ -183,6 +187,7 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider, OM
                 "api.permission_nodes", "api.block_entity_read", "api.block_data_addressing", "api.dimension_teleport",
                 "api.world_spawn_anchor",
                 "api.server_game_rules", "api.world_particles_arguments", "api.entity_equipment",
+                "api.server_difficulty", "content.light_level",
             )
         } else {
             // Deliberately not expected here, because a session that stops at the main menu does not

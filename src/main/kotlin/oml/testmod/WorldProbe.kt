@@ -1,5 +1,7 @@
 package oml.testmod
 
+import kotlin.math.abs
+
 import net.minecraft.core.BlockPos
 import net.minecraft.core.Direction
 import net.minecraft.core.registries.BuiltInRegistries
@@ -182,6 +184,13 @@ object WorldProbe {
 
     /** Its own column, stood in two declared dimensions at once so the same coordinates carry two stores. */
     private val PRESS_DATA_POSITION = BlockPos(168, 40, 168)
+
+    /**
+     * The lamp the testmod declares with a light level: same chunk as the press column, so one
+     * force-load serves both, and its own position so no two probes ever share a block.
+     */
+    private const val LAMP_BLOCK = "oml_testmod:lamp"
+    private val LAMP_POSITION = BlockPos(112, 40, 112)
 
     /** A node nothing in vanilla grants; the gated command and the grant probe both address it. */
     private const val MOD_NODE = "oml_testmod:build"
@@ -583,6 +592,8 @@ object WorldProbe {
         step("content.custom_dimension") { probeCustomDimension() }
         step("api.chunk_lifecycle") { probeChunkLifecycle() }
         step("api.permission_nodes") { probePermissionNodes() }
+        step("api.server_difficulty") { probeDifficulty() }
+        step("content.light_level") { probeLightLevel() }
         step("api.world_spawn_anchor") { probeWorldSpawn() }
         step("api.block_entity_read") { probeBlockEntityRead() }
         step("api.block_data_addressing") { probeBlockDataAddressing() }
@@ -1292,6 +1303,7 @@ object WorldProbe {
     private var pressDataProgressBefore = -1
     private var pressDataWriteTick = -1
     private var pressDataIdentity = false
+    private var lampWaitTick = -1
     private var teleportCow: LivingEntity? = null
     private var teleportMoved: Entity? = null
     private var teleportArrived = false
@@ -1572,6 +1584,71 @@ object WorldProbe {
         )
         a.releaseForceLoadedChunk(PRESS_DATA_POSITION)
         b.releaseForceLoadedChunk(PRESS_DATA_POSITION)
+        return true
+    }
+
+    /**
+     * The server difficulty through OML's read/write pair: the write goes through the same
+     * `setDifficulty(difficulty, force = true)` call the game's own `/difficulty` command takes, so
+     * the read-back after each write is the whole contract. The original difficulty is restored —
+     * the probe runs on a live server other checks share.
+     */
+    private fun probeDifficulty(): Boolean {
+        val server = OMLGame.server ?: return false
+        val original = server.difficultyId
+        val wrote = server.setDifficulty("hard")
+        val afterWrite = server.difficultyId
+        val restored = server.setDifficulty(original)
+        val afterRestore = server.difficultyId
+        val known = original in listOf("peaceful", "easy", "normal", "hard")
+        val flags = listOf(
+            "the server answers a known difficulty id" to known,
+            "the write is taken" to (wrote && afterWrite == "hard"),
+            "the read answers the write" to (afterWrite == "hard"),
+            "restoring lands back on the original" to (restored && afterRestore == original),
+        )
+        E2E.check(
+            "api.server_difficulty",
+            flags.all { it.second },
+            "${flags.filterNot { it.second }.map { it.first }} failed of ${flags.size}; " +
+                "original=$original wrote=$wrote afterWrite=$afterWrite " +
+                "restored=$restored afterRestore=$afterRestore",
+        )
+        return true
+    }
+
+    /**
+     * A block declared with a light level materializes with an emissive block state: the placement is
+     * read back through the game's own light-emission property, which is what the light engine consumes.
+     */
+    private fun probeLightLevel(): Boolean {
+        val server = OMLGame.server ?: return false
+        val level = server.levelById(MOD_DIMENSION) ?: return false
+        if (!chunkReady(server, MOD_DIMENSION, LAMP_POSITION)) {
+            if (lampWaitTick < 0) lampWaitTick = server.tickCount
+            if (server.tickCount - lampWaitTick < CHUNK_TICK_WAIT_LIMIT) return false
+            E2E.check(
+                "content.light_level", false,
+                "the declared dimension never brought ${LAMP_POSITION}'s chunk to ticking in " +
+                    "$CHUNK_TICK_WAIT_LIMIT ticks (loaded=${level.isLoaded(LAMP_POSITION)})",
+            )
+            return true
+        }
+        val placed = level.setBlockAt(LAMP_POSITION, LAMP_BLOCK)
+        val emission = level.blockStateAt(LAMP_POSITION)?.lightEmission
+        val cleared = level.setBlockAt(LAMP_POSITION, AIR)
+        val flags = listOf(
+            "the lamp took" to placed,
+            "the placed state emits what the declaration asked" to (emission == 14),
+            "the column is left as it was found" to cleared,
+        )
+        E2E.check(
+            "content.light_level",
+            flags.all { it.second },
+            "${flags.filterNot { it.second }.map { it.first }} failed of ${flags.size}; " +
+                "placed=$placed emission=$emission (wanted 14) cleared=$cleared",
+        )
+        level.releaseForceLoadedChunk(LAMP_POSITION)
         return true
     }
 
@@ -2225,6 +2302,11 @@ object WorldProbe {
         val backHome = player.blockPosition()
         val refused = player.teleport(home.x + 0.5, home.y + 2.1, home.z + 0.5, "oml_testmod:absent")
         val stillHome = player.blockPosition()
+        // The oriented move stays inside the home column on purpose: what it tests is the arrival
+        // facing, not another destination.
+        val turned = player.teleport(home.x + 0.5, home.y + 0.1, home.z + 0.5, yRot = 90f, xRot = 20f)
+        val facing = player.yRot
+        val pitch = player.xRot
         val flags = listOf(
             "the plain move is accepted" to moved,
             "the game put the player on the named block" to (afterMove == target),
@@ -2232,6 +2314,8 @@ object WorldProbe {
             "that move lands where it was asked" to (backHome == home),
             "an unregistered dimension is refused" to !refused,
             "the refusal left the player where they were" to (stillHome == home),
+            "an oriented move is accepted" to turned,
+            "the arrival faces where it was asked" to (abs(facing - 90f) < 0.01f && abs(pitch - 20f) < 0.01f),
         )
         E2E.check(
             "api.player_teleport",
@@ -2239,7 +2323,8 @@ object WorldProbe {
             "${flags.filterNot { it.second }.map { it.first }} failed of ${flags.size}; " +
                 "${player.dimensionId} $home -> $afterMove (wanted $target) -> $backHome, " +
                 "unregistered dimension returned $refused at $stillHome; targetLoaded=" +
-                "${player.level().isLoaded(target)} blockUnderTarget=${player.level().blockIdAt(target)}",
+                "${player.level().isLoaded(target)} blockUnderTarget=${player.level().blockIdAt(target)} " +
+                "facing=$facing/$pitch (wanted 90/20)",
         )
         return true
     }
