@@ -35,6 +35,7 @@ import oml.testmod.WorldProbe.driveHurtRewrite
 import oml.testmod.WorldProbe.guard
 import oml.testmod.WorldProbe.probeWeather
 import org.ohmyloader.api.content.OMLBlockDataCarrier
+import org.ohmyloader.api.content.OMLDataItemStack
 import org.ohmyloader.api.tick.OMLScheduler
 import org.ohmyloader.api.tick.OMLSide
 import org.ohmyloader.api.tick.OMLTask
@@ -1465,10 +1466,11 @@ object WorldProbe {
      * A declared block entity's persistent store, reached from outside its own ticker, in two dimensions at the
      * same coordinates. Isolation is the point: a store addressed by position alone would answer for both
      * dimensions with one value, while the game holds one block entity per position **per level**. The progress
-     * leg shows the address is the store the game ticks rather than a copy of it — the techmod's press counts a
-     * cycle in `progress` every tick — and the identity leg shows the ticker's view and this one are the same
-     * object. Three refusals close the contract: a position whose block has no block entity, an unloaded
-     * position, and a dimension this server never loaded.
+     * leg shows the address is the store the game ticks rather than a copy of it — the press counts only while
+     * it holds input (an idle machine must not spin), so the leg loads it through the same address it is
+     * testing — and the identity leg shows the ticker's view and this one are the same object. Three refusals
+     * close the contract: a position whose block has no block entity, an unloaded position, and a dimension
+     * this server never loaded.
      */
     private fun probeBlockDataAddressing(): Boolean {
         val server = OMLGame.server ?: return false
@@ -1511,6 +1513,10 @@ object WorldProbe {
             dataA.putInt("side", 1)
             dataB.putInt("side", 2)
             dataA.putString("only_in_a", "a")
+            // The press counts only while it holds input — the machine's own contract, an idle press
+            // must not spin — so the ticker leg loads it through this very address, which also runs the
+            // data-track item stack through the same store the ticker reads.
+            dataA.putItemStack("input", OMLDataItemStack("techmod:copper_ingot", 1))
             pressDataIdentity = (a.blockEntityAt(PRESS_DATA_POSITION) as? OMLBlockDataCarrier)
                 ?.blockData === dataA
             pressDataProgressBefore = dataA.getInt("progress")
