@@ -70,13 +70,13 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider, OM
         println("[oml_testmod] declared block: $block")
 
         // Data-component integration probe: a sword-ish item with native components. The adapter
-        // materializes maxDamage into DataComponents.MAX_DAMAGE, the attack values into
+        // materializes maxDurability into DataComponents.MAX_DAMAGE, the attack values into
         // DataComponents.ATTRIBUTE_MODIFIERS (ADD_VALUE modifiers on ATTACK_DAMAGE / ATTACK_SPEED,
         // MAINHAND group) and the tool fields into DataComponents.TOOL. In game:
         // /give @s oml_testmod:test_sword, then check the durability bar, the +7 Attack Damage /
         // +1.6 Attack Speed tooltip lines, and mining stone vs. dirt speeds.
         val sword = registry.declareItem("test_sword") {
-            maxDamage = 592
+            maxDurability = 592
             attackDamage = 7.0
             attackSpeed = -2.4 // vanilla base 4.0 → 1.6 effective, same presentation as vanilla swords
             miningSpeed = 1.0f

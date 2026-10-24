@@ -20,26 +20,18 @@ object NetworkProbe {
 
     private data class Pong(val nonce: Int, val label: String)
 
-    private object PingCodec : OMLPayloadCodec<Ping> {
-        override fun write(buffer: OMLPacketBuffer, value: Ping) {
-            buffer.writeInt(value.nonce)
-            buffer.writeString(value.label)
-        }
+    private val pingCodec = codec({ buffer, value ->
+        buffer.writeInt(value.nonce)
+        buffer.writeString(value.label)
+    }, { buffer -> Ping(buffer.readInt(), buffer.readString()) })
 
-        override fun read(buffer: OMLPacketBuffer): Ping = Ping(buffer.readInt(), buffer.readString())
-    }
+    private val pongCodec = codec({ buffer, value ->
+        buffer.writeInt(value.nonce)
+        buffer.writeString(value.label)
+    }, { buffer -> Pong(buffer.readInt(), buffer.readString()) })
 
-    private object PongCodec : OMLPayloadCodec<Pong> {
-        override fun write(buffer: OMLPacketBuffer, value: Pong) {
-            buffer.writeInt(value.nonce)
-            buffer.writeString(value.label)
-        }
-
-        override fun read(buffer: OMLPacketBuffer): Pong = Pong(buffer.readInt(), buffer.readString())
-    }
-
-    private val PING = OMLPayloadType("probe_ping", PingCodec)
-    private val PONG = OMLPayloadType("probe_pong", PongCodec)
+    private val PING = OMLPayloadType("probe_ping", pingCodec)
+    private val PONG = OMLPayloadType("probe_pong", pongCodec)
 
     private val nonce = Random.nextInt(1, 1_000_000)
 

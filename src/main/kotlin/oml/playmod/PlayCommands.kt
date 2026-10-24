@@ -39,10 +39,10 @@ object PlayCommands {
             subcommand("pad") {
                 executes { withPlayer(it) { p -> padStatus(p) } }
                 subcommand("charge") { executes { withPlayer(it) { p -> chargePad(p) } } }
-                argument("steps", OMLArgumentType.INTEGER) {
+                argument("steps", OMLArgumentType.INTEGER) { steps ->
                     executes { source ->
                         val who = require(source) ?: return@executes
-                        source.reply(chargePad(who, source.getInt("steps")))
+                        source.reply(chargePad(who, source[steps]))
                     }
                 }
             }
@@ -54,35 +54,40 @@ object PlayCommands {
             }
             subcommand("clock") {
                 executes { withPlayer(it) { p -> clockStatus(p) } }
-                argument("seconds", OMLArgumentType.INTEGER) {
+                argument("seconds", OMLArgumentType.INTEGER) { seconds ->
                     executes { source ->
                         val who = require(source) ?: return@executes
-                        source.reply(clockTo(who, source.getInt("seconds")))
+                        source.reply(clockTo(who, source[seconds]))
                     }
                 }
             }
             subcommand("zap") {
                 // The kit's own node, granted on join by PlayEvents: a fine-grained gate that does not need OP.
                 permissionNode = KEEPER_NODE
-                argument("target", OMLArgumentType.WORD) { executes { source -> source.reply(zap(source)) } }
+                argument("target", OMLArgumentType.WORD) { target ->
+                    executes { source -> source.reply(zap(source, source[target])) }
+                }
             }
             subcommand("mob") {
                 permissionNode = KEEPER_NODE
-                argument("type", OMLArgumentType.WORD) {
-                    argument("count", OMLArgumentType.INTEGER) { executes { source -> source.reply(summon(source)) } }
+                argument("type", OMLArgumentType.WORD) { type ->
+                    argument("count", OMLArgumentType.INTEGER) { count ->
+                        executes { source -> source.reply(summon(source, source[type], source[count])) }
+                    }
                 }
             }
             subcommand("weather") {
                 permissionNode = KEEPER_NODE
-                argument("kind", OMLArgumentType.WORD) { executes { source -> source.reply(weather(source)) } }
+                argument("kind", OMLArgumentType.WORD) { kind ->
+                    executes { source -> source.reply(weather(source, source[kind])) }
+                }
             }
             subcommand("rule") {
                 permissionNode = KEEPER_NODE
-                argument("name", OMLArgumentType.WORD) {
-                    argument(
-                        "value",
-                        OMLArgumentType.GREEDY_STRING,
-                    ) { executes { source -> source.reply(rule(source)) } }
+                argument("name", OMLArgumentType.WORD) { name ->
+                    argument("value", OMLArgumentType.GREEDY_STRING) { value ->
+                        executes { source -> source.reply(rule(source, source[name], source[value])) }
+                    }
                 }
             }
             subcommand("wear") { executes { withPlayer(it) { p -> wearKitArmour(p) } } }
@@ -94,7 +99,9 @@ object PlayCommands {
             // The kit's own node, spoken for out loud: `/kit keeper off` takes the gate away again, which is
             // the same lever `/kit zap` refuses on without it.
             subcommand("keeper") {
-                argument("hold", OMLArgumentType.BOOLEAN) { executes { source -> source.reply(keeper(source)) } }
+                argument("hold", OMLArgumentType.BOOLEAN) { hold ->
+                    executes { source -> source.reply(keeper(source, source[hold])) }
+                }
                 executes { source -> source.reply(keeperStatus(source)) }
             }
             // Deliberately the game's own ladder rather than the kit's node: an operator-only leaf, so a
@@ -104,14 +111,15 @@ object PlayCommands {
                 executes { source -> source.reply(adminStatus(source)) }
             }
             subcommand("tag") {
-                argument(
-                    "tag",
-                    OMLArgumentType.GREEDY_STRING,
-                ) { executes { source -> source.reply(tagReport(source)) } }
+                argument("tag", OMLArgumentType.GREEDY_STRING) { tag ->
+                    executes { source -> source.reply(tagReport(source, source[tag])) }
+                }
                 executes { source -> source.reply(tagSummary()) }
             }
             subcommand("panel") {
-                argument("visible", OMLArgumentType.BOOLEAN) { executes { source -> source.reply(panel(source)) } }
+                argument("visible", OMLArgumentType.BOOLEAN) { visible ->
+                    executes { source -> source.reply(panel(source[visible])) }
+                }
                 executes { source -> source.reply(tagToggle(source)) }
             }
             subcommand("anchor") {
@@ -233,10 +241,9 @@ object PlayCommands {
             "rate=${manager.instanceOf(clock)?.rate()}, paused=${manager.instanceOf(clock)?.isPaused}"
     }
 
-    private fun zap(source: OMLCommandSource): String {
+    private fun zap(source: OMLCommandSource, name: String): String {
         val player = require(source) ?: return "no player"
         val level = player.level()
-        val name = source.getString("target")
         val target = level.entitiesOfType("minecraft:$name").firstOrNull() as? net.minecraft.world.entity.LivingEntity
             ?: return "no living $name near ${level.dimensionId}"
         val hurt = target.hurt(PlayContent.id(PlayContent.DAMAGE_TYPE), 3.0f, player)
@@ -246,11 +253,10 @@ object PlayCommands {
         return "zapped $name=$hurt (health ${target.health}/${target.maxHealth}, node held=$shocked)"
     }
 
-    private fun summon(source: OMLCommandSource): String {
+    private fun summon(source: OMLCommandSource, type: String, rawCount: Int): String {
         val player = require(source) ?: return "no player"
         val level = player.level()
-        val type = source.getString("type")
-        val count = source.getInt("count").coerceIn(1, 8)
+        val count = rawCount.coerceIn(1, 8)
         val spawned = (1..count).mapNotNull {
             level.spawnLivingEntity("minecraft:$type", player.x + it, player.y + 1.0, player.z + it)
         }
@@ -267,10 +273,10 @@ object PlayCommands {
             "attack $before -> ${first.attributeValue("minecraft:attack_damage")} (raised=$raised)"
     }
 
-    private fun weather(source: OMLCommandSource): String {
+    private fun weather(source: OMLCommandSource, kind: String): String {
         val player = require(source) ?: return "no player"
         val level = player.level()
-        return when (source.getString("kind")) {
+        return when (kind) {
             "clear" -> described(level, level.setWeather(raining = false, thundering = false, durationTicks = 1200), "clear")
             "rain" -> described(level, level.setWeather(raining = true, thundering = false, durationTicks = 1200), "rain")
             "storm" -> described(level, level.setWeather(raining = true, thundering = true, durationTicks = 1200), "storm")
@@ -282,19 +288,17 @@ object PlayCommands {
         "$kind asked for (wrote=$wrote); now ${level.isRaining}, thunder ${level.isThundering} " +
             "over ${level.dimensionId}"
 
-    private fun rule(source: OMLCommandSource): String {
+    private fun rule(source: OMLCommandSource, name: String, value: String): String {
         val player = require(source) ?: return "no player"
-        val name = source.getString("name")
         val id = if (name.contains(':')) name else "minecraft:$name"
         val was = server.gameRuleValue(id) ?: return "no game rule $id"
-        val wrote = server.setGameRule(id, source.getString("value"))
+        val wrote = server.setGameRule(id, value)
         val now = server.gameRuleValue(id)
         return "$id was $was, wrote=$wrote, now $now"
     }
 
     /** A group lives in exactly one registry, so the answer names the registries it looked in. */
-    private fun tagReport(source: OMLCommandSource): String {
-        val name = source.getString("tag")
+    private fun tagReport(source: OMLCommandSource, name: String): String {
         val id = if (name.contains(':')) name else "minecraft:$name"
         val blocks = server.registry(net.minecraft.core.registries.Registries.BLOCK)
             ?.membersOf(net.minecraft.core.registries.Registries.BLOCK, id)
@@ -351,8 +355,7 @@ object PlayCommands {
             "written-back=$wrote, dimension types=${server.dimensionTypeIds.size}"
     }
 
-    private fun panel(source: OMLCommandSource): String {
-        val visible = source.getBoolean("visible")
+    private fun panel(visible: Boolean): String {
         PlayState.overlayVisible = visible
         return "overlay visible=$visible"
     }
@@ -407,9 +410,8 @@ object PlayCommands {
         return "up=$up, named=$named, back=$down; standing at ${player.blockPosition()} in ${player.dimensionId}"
     }
 
-    private fun keeper(source: OMLCommandSource): String {
+    private fun keeper(source: OMLCommandSource, hold: Boolean): String {
         val who = require(source) ?: return "no player"
-        val hold = source.getBoolean("hold")
         val changed = if (hold) who.grantPermissionNode(KEEPER_NODE) else who.revokePermissionNode(KEEPER_NODE)
         return "keeper node ${if (hold) "granted" else "revoked"} (changed=$changed), " +
             "overrides now ${who.permissionNodeOverrides}"

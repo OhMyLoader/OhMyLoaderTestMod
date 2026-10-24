@@ -29,7 +29,7 @@ object PlayEvents {
         Events.SERVER_STARTED.register { event ->
             // The gallery is quiet ground until someone builds in it, so the kit keeps its own beat there.
             chimeTask?.cancel()
-            chimeTask = OMLScheduler.repeat(OMLSide.SERVER, 1200) { PlayGallery.chime() }
+            chimeTask = OMLScheduler.server.every(1200) { PlayGallery.chime() }
             event.server.broadcastMessage("[kit] the playground is awake")
         }
         Events.SERVER_STOPPING.register {
@@ -47,7 +47,7 @@ object PlayEvents {
                 )
             }
             // Scheduled rather than immediate: the inventory is not settled the instant a player joins.
-            OMLScheduler.schedule(OMLSide.SERVER, 40) {
+            OMLScheduler.server.schedule(delayTicks = 40) {
                 if (!player.isRemoved) player.playSound("minecraft:ui.toast.challenge_complete", 0.5f, 1.4f)
             }
         }

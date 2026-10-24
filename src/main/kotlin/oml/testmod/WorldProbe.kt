@@ -3064,7 +3064,7 @@ object WorldProbe {
                     run.oneShotAt = run.advances
                     run.bodyThread = Thread.currentThread().name
                 }
-                handle = OMLScheduler.repeat(run.side, intervalTicks = 2) {
+                handle = OMLScheduler.every(run.side, intervalTicks = 2) {
                     run.repeatRuns++
                     if (run.repeatRuns == 3) handle?.cancel()
                 }

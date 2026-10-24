@@ -41,9 +41,9 @@ class TechMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider {
         // Ore: stone-tier hardness, and it drops nothing without the right tool
         for (ore in ORE_BLOCKS) {
             registry.declareBlock(ore) {
-                destroyTime = 3.0f
-                explosionResistance = 3.0f
-                requiresCorrectToolForDrops = true
+                hardness = 3.0f
+                blastResistance = 3.0f
+                dropsRequireCorrectTool = true
                 generateAsOre {
                     veinSize = 8
                     perChunk = 6
@@ -85,9 +85,9 @@ class TechMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider {
         // The press exercises the BlockEntity API: its tick belongs to the block rather than to a
         // global SERVER_TICK handler, and its progress persists in OMLBlockData with the world.
         registry.declareBlock("press") {
-            destroyTime = 3.5f
-            explosionResistance = 6.0f
-            requiresCorrectToolForDrops = true
+            hardness = 3.5f
+            blastResistance = 6.0f
+            dropsRequireCorrectTool = true
             blockEntity {
                 tick { event ->
                     val progress = event.data.getInt("progress") + 1
@@ -114,10 +114,10 @@ class TechMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider {
                 val prefix = context.config.getString("ping_prefix")
                 println("[techmod] $prefix (executed by ${source.name})")
             }
-            argument("loud", OMLArgumentType.BOOLEAN) {
+            argument("loud", OMLArgumentType.BOOLEAN) { loudArg ->
                 executes { source ->
                     val prefix = context.config.getString("ping_prefix")
-                    val loud = source.getBoolean("loud") || context.config.getBoolean("loud_by_default")
+                    val loud = source[loudArg] || context.config.getBoolean("loud_by_default")
                     val message = if (loud) prefix.uppercase() + "!!" else prefix
                     println("[techmod] $message (executed by ${source.name})")
                 }

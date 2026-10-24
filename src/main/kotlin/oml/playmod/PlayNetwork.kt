@@ -11,12 +11,10 @@ import org.ohmyloader.api26_3.dimensionId
  */
 object PlayNetwork {
 
-    val PANEL_REQUEST = OMLPayloadType("oml_playmod:panel_request", StringCodec)
-    val PANEL_REPLY = OMLPayloadType("oml_playmod:panel_reply", PanelCodec)
-
-    /** What the client renders until the next answer replaces it. */
-    @Volatile
-    var panel: String? = null
+    private val stringCodec = codec(
+        { buffer, value -> buffer.writeString(value) },
+        { buffer -> buffer.readString() },
+    )
 
     data class Panel(
         val headline: String,
@@ -28,13 +26,8 @@ object PlayNetwork {
         val menu: String,
     )
 
-    private object StringCodec : OMLPayloadCodec<String> {
-        override fun write(buffer: OMLPacketBuffer, value: String) = buffer.writeString(value)
-        override fun read(buffer: OMLPacketBuffer): String = buffer.readString()
-    }
-
-    private object PanelCodec : OMLPayloadCodec<Panel> {
-        override fun write(buffer: OMLPacketBuffer, value: Panel) {
+    private val panelCodec = codec(
+        { buffer, value ->
             buffer.writeString(value.headline)
             buffer.writeInt(value.pads)
             buffer.writeInt(value.ticks)
@@ -42,14 +35,21 @@ object PlayNetwork {
             buffer.writeBoolean(value.hasHome)
             buffer.writeString(value.dimension)
             buffer.writeString(value.menu)
-        }
-
-        override fun read(buffer: OMLPacketBuffer): Panel =
+        },
+        { buffer ->
             Panel(
                 buffer.readString(), buffer.readInt(), buffer.readInt(), buffer.readInt(),
                 buffer.readBoolean(), buffer.readString(), buffer.readString(),
             )
-    }
+        },
+    )
+
+    val PANEL_REQUEST = OMLPayloadType("oml_playmod:panel_request", stringCodec)
+    val PANEL_REPLY = OMLPayloadType("oml_playmod:panel_reply", panelCodec)
+
+    /** What the client renders until the next answer replaces it. */
+    @Volatile
+    var panel: String? = null
 
     fun declare(network: OMLNetworkRegistry) {
         network.clientToServer(PANEL_REQUEST) { reason, context ->

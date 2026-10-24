@@ -37,9 +37,9 @@ object PlayContent {
     fun declare(registry: ContentRegistry) {
         // --- the mineable chain: ore in the ground, dropped as raw, smelted into an ingot -----------
         registry.declareBlock(ORE) {
-            destroyTime = 2.2f
-            explosionResistance = 9.0f
-            requiresCorrectToolForDrops = true
+            hardness = 2.2f
+            blastResistance = 9.0f
+            dropsRequireCorrectTool = true
             generateAsOre {
                 veinSize = 6
                 perChunk = 3
@@ -60,9 +60,9 @@ object PlayContent {
 
         // --- the building block: a machine that counts who stepped on it ---------------------------
         registry.declareBlock(BLOCK) {
-            destroyTime = 1.6f
-            explosionResistance = 12.0f
-            requiresCorrectToolForDrops = true
+            hardness = 1.6f
+            blastResistance = 12.0f
+            dropsRequireCorrectTool = true
             onStepOn { event ->
                 if (!event.isClient) PlayMachines.touched(event.level, event.x, event.y, event.z, event.entity)
             }
@@ -81,8 +81,8 @@ object PlayContent {
 
         // --- the pad: charge it, step on it, get launched ------------------------------------------
         registry.declareBlock(PAD) {
-            destroyTime = 0.8f
-            explosionResistance = 4.0f
+            hardness = 0.8f
+            blastResistance = 4.0f
             onStepOn { event ->
                 if (!event.isClient) PlayMachines.launch(event.level, event.x, event.y, event.z, event.entity)
             }
@@ -99,9 +99,9 @@ object PlayContent {
 
         // --- the waystone: sets the pearl's target, and the player's respawn anchor ----------------
         registry.declareBlock(WAYSTONE) {
-            destroyTime = 3.0f
-            explosionResistance = 30.0f
-            requiresCorrectToolForDrops = true
+            hardness = 3.0f
+            blastResistance = 30.0f
+            dropsRequireCorrectTool = true
             blockEntity {
                 tick { event -> PlayMachines.waystoneHeartbeat(event) }
             }
@@ -115,7 +115,7 @@ object PlayContent {
 
         // --- the tools: a sword with its own mining rules, a pearl, a gallery key ------------------
         registry.declareItem(SWORD) {
-            maxDamage = 320
+            maxDurability = 320
             attackDamage = 6.5
             attackSpeed = -2.6
             miningSpeed = 7.0f
