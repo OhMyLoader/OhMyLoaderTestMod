@@ -25,7 +25,7 @@ object PlayCommands {
 
     fun declare(commands: OMLCommandRegistry) {
         commands.register("kit") {
-            executes { source -> source.reply(help(source)) }
+            answers { help(it) }
 
             subcommand("give") { executes { withPlayer(it) { p -> giveKit(p) } } }
             subcommand("home") {
@@ -65,28 +65,28 @@ object PlayCommands {
                 // The kit's own node, granted on join by PlayEvents: a fine-grained gate that does not need OP.
                 permissionNode = KEEPER_NODE
                 argument("target", OMLArgumentType.WORD) { target ->
-                    executes { source -> source.reply(zap(source, source[target])) }
+                    answers { zap(it, it[target]) }
                 }
             }
             subcommand("mob") {
                 permissionNode = KEEPER_NODE
                 argument("type", OMLArgumentType.WORD) { type ->
                     argument("count", OMLArgumentType.INTEGER) { count ->
-                        executes { source -> source.reply(summon(source, source[type], source[count])) }
+                        answers { summon(it, it[type], it[count]) }
                     }
                 }
             }
             subcommand("weather") {
                 permissionNode = KEEPER_NODE
                 argument("kind", OMLArgumentType.WORD) { kind ->
-                    executes { source -> source.reply(weather(source, source[kind])) }
+                    answers { weather(it, it[kind]) }
                 }
             }
             subcommand("rule") {
                 permissionNode = KEEPER_NODE
                 argument("name", OMLArgumentType.WORD) { name ->
                     argument("value", OMLArgumentType.GREEDY_STRING) { value ->
-                        executes { source -> source.reply(rule(source, source[name], source[value])) }
+                        answers { rule(it, it[name], it[value]) }
                     }
                 }
             }
@@ -95,32 +95,32 @@ object PlayCommands {
             // The creative book is the one screen a mod's own content has to reach, so the kit can put the
             // player in creative and ask what the game's tab registry actually holds.
             subcommand("creative") { executes { withPlayer(it) { p -> goCreative(p) } } }
-            subcommand("tabs") { executes { source -> source.reply(tabRow()) } }
+            subcommand("tabs") { answers { tabRow() } }
             // The kit's own node, spoken for out loud: `/kit keeper off` takes the gate away again, which is
             // the same lever `/kit zap` refuses on without it.
             subcommand("keeper") {
                 argument("hold", OMLArgumentType.BOOLEAN) { hold ->
-                    executes { source -> source.reply(keeper(source, source[hold])) }
+                    answers { keeper(it, it[hold]) }
                 }
-                executes { source -> source.reply(keeperStatus(source)) }
+                answers { keeperStatus(it) }
             }
             // Deliberately the game's own ladder rather than the kit's node: an operator-only leaf, so a
             // non-op player sees the gate refuse — which is the honest demonstration of permissionLevel.
             subcommand("admin") {
                 permissionLevel = 2
-                executes { source -> source.reply(adminStatus(source)) }
+                answers { adminStatus(it) }
             }
             subcommand("tag") {
                 argument("tag", OMLArgumentType.GREEDY_STRING) { tag ->
-                    executes { source -> source.reply(tagReport(source, source[tag])) }
+                    answers { tagReport(it, it[tag]) }
                 }
-                executes { source -> source.reply(tagSummary()) }
+                answers { tagSummary() }
             }
             subcommand("panel") {
                 argument("visible", OMLArgumentType.BOOLEAN) { visible ->
-                    executes { source -> source.reply(panel(source[visible])) }
+                    answers { panel(it[visible]) }
                 }
-                executes { source -> source.reply(tagToggle(source)) }
+                answers { tagToggle(it) }
             }
             subcommand("anchor") {
                 executes { withPlayer(it) { p -> anchorStatus(p) } }
