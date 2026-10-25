@@ -6,6 +6,11 @@ import org.ohmyloader.api.command.OMLArgumentType
 import org.ohmyloader.api.command.OMLCommandRegistry
 import org.ohmyloader.api.command.OMLCommandSource
 import org.ohmyloader.api26_3.*
+import org.ohmyloader.api26_3.raycast
+import org.ohmyloader.api26_3.foodLevel
+import org.ohmyloader.api26_3.saturation
+import org.ohmyloader.api26_3.xpLevel
+import org.ohmyloader.api26_3.xpProgress
 import kotlin.math.abs
 
 /**
@@ -91,6 +96,13 @@ object PlayCommands {
             }
             subcommand("wear") { executes { withPlayer(it) { p -> wearKitArmour(p) } } }
             subcommand("probe") { executes { withPlayer(it) { p -> moveProbe(p) } } }
+            // The crosshair answer: what the player is looking at, through the game's own block clip.
+            subcommand("look") { answers { look(p = it.player ?: return@answers "no player") } }
+            // The survival knobs a utility mod reaches for: hunger, saturation and experience.
+            subcommand("feed") { executes { withPlayer(it) { p -> feedPlayer(p) } } }
+            subcommand("xp") { argument("levels", OMLArgumentType.INTEGER) { levels ->
+                executes { withPlayer(it) { p -> grantLevels(p, it[levels]) } }
+            } }
             // The creative book is the one screen a mod's own content has to reach, so the kit can put the
             // player in creative and ask what the game's tab registry actually holds.
             subcommand("creative") { executes { withPlayer(it) { p -> goCreative(p) } } }
@@ -409,6 +421,27 @@ object PlayCommands {
         val changed = if (hold) who.grantPermissionNode(KEEPER_NODE) else who.revokePermissionNode(KEEPER_NODE)
         return "keeper node ${if (hold) "granted" else "revoked"} (changed=$changed), " +
             "overrides now ${who.permissionNodeOverrides}"
+    }
+
+    /** The crosshair answer: the block id and position the game's own clip stops at. */
+    private fun look(p: ServerPlayer): String {
+        val hit = p.raycast(8.0) ?: return "looking at nothing within 8 blocks"
+        return "looking at ${hit.blockId} at ${hit.position}"
+    }
+
+    /** Feeds a hungry player: the before/after pair is the claim the API makes. */
+    private fun feedPlayer(p: ServerPlayer): String {
+        val beforeFood = p.foodLevel
+        val beforeSaturation = p.saturation
+        p.feed(20 - beforeFood, 8f)
+        return "food $beforeFood -> ${p.foodLevel}, saturation $beforeSaturation -> ${p.saturation}"
+    }
+
+    /** Grants (or, negative, removes) levels; the progress readout shows the level boundary moved. */
+    private fun grantLevels(p: ServerPlayer, levels: Int): String {
+        val before = p.xpLevel
+        p.giveExperienceLevels(levels)
+        return "level $before -> ${p.xpLevel}, progress ${p.xpProgress}"
     }
 
     private fun keeperStatus(source: OMLCommandSource): String {
