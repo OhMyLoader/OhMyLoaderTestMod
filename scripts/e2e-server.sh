@@ -9,7 +9,9 @@
 #      OML_E2E_LOG (build/e2e-server.log), OML_E2E_WATCHDOG (300s, the in-game watchdog that turns
 #      a session that never finishes into a FAIL instead of a hang), OML_E2E_GRACE_SECONDS,
 #      OML_E2E_EXPECT_EXTRA (gate self-test: an expectation nothing reports, so a working gate must fail),
-#      OML_E2E_SEED (oml-e2e, the world seed a generated world is created from).
+#      OML_E2E_SEED (oml-e2e, the world seed a generated world is created from),
+#      OML_GAME_VERSION (26.3), OML_E2E_OML_VERSION (overrides the SNAPSHOT coordinate for a release gate),
+#      OML_E2E_CONTEXT / OML_E2E_RESULT (evidence paths, default build/e2e-{context,result}-server.json).
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit
 
@@ -17,10 +19,13 @@ TICKS="${OML_E2E_TICKS:-200}"
 READY_TIMEOUT="${OML_E2E_READY_TIMEOUT:-240}"
 STOP_TIMEOUT="${OML_E2E_STOP_TIMEOUT:-60}"
 LOG="${OML_E2E_LOG:-build/e2e-server.log}"
-E2E_ARGS=(-Poml.e2e.ticks="$TICKS" -Poml.e2e.timeoutSeconds="${OML_E2E_WATCHDOG:-300}")
+GAME_VERSION="${OML_E2E_GAME_VERSION:-${OML_GAME_VERSION:-26.3}}"
+export OML_E2E_GAME_VERSION="$GAME_VERSION"
+E2E_ARGS=(-Poml.gameVersion="$GAME_VERSION" -Poml.e2e.ticks="$TICKS" -Poml.e2e.timeoutSeconds="${OML_E2E_WATCHDOG:-300}")
 [ -n "${OML_E2E_GRACE_SECONDS:-}" ] && E2E_ARGS+=(-Poml.e2e.graceSeconds="$OML_E2E_GRACE_SECONDS")
 [ -n "${OML_E2E_EXPECT_EXTRA:-}" ] && E2E_ARGS+=(-Poml.e2e.expectExtra="$OML_E2E_EXPECT_EXTRA")
 [ -n "${OML_LOG_FILE:-}" ] && E2E_ARGS+=(-Poml.log.file="$OML_LOG_FILE")
+[ -n "${OML_E2E_OML_VERSION:-}" ] && E2E_ARGS+=(-Poml_version="$OML_E2E_OML_VERSION")
 mkdir -p "$(dirname "$LOG")"
 
 # Several preconditions read the terrain the game generates (a solid column with a free block above it
@@ -39,7 +44,9 @@ fi
 FIFO="$(mktemp -u)"
 mkfifo "$FIFO"
 cleanup() { exec 3>&- 2>/dev/null; rm -f "$FIFO"; }
-trap cleanup EXIT
+. "$(dirname "$0")/e2e-evidence.sh"
+e2e_evidence_start server "$LOG"
+trap 'rc=$?; e2e_evidence_finish "$rc"; cleanup' EXIT
 
 # Opened read-write so the shell holds the write end: the server's stdin never reaches EOF before the
 # /stop we send, and opening a FIFO this way cannot block.

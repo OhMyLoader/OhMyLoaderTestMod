@@ -13,7 +13,10 @@ cd "$(dirname "$0")/.." || exit
 # here agrees with what Gradle actually resolves.
 version_in() { sed -n 's/[[:space:]]//g; s/^oml_version=//p' "$1/gradle.properties" | head -1; }
 
-ours="$(version_in .)"
+# The release gate publishes all three repositories at the tag version while the files keep
+# SNAPSHOT; compare the effective version there, not the file's placeholder.
+override="${OML_E2E_OML_VERSION:-}"
+ours="${override:-$(version_in .)}"
 if [[ -z "$ours" ]]; then
   echo "gradle.properties declares no oml_version" >&2
   exit 1
@@ -26,7 +29,7 @@ for sibling in OhMyLoader OhMyLoaderGradle; do
     echo "$sibling: no checkout beside this repo, not compared"
     continue
   fi
-  theirs="$(version_in "$sibling")"
+  theirs="${override:-$(version_in "$sibling")}"
   if [[ "$theirs" != "$ours" ]]; then
     echo "$sibling publishes $theirs, this repo resolves $ours — align oml_version in gradle.properties" >&2
     status=1

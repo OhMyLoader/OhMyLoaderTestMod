@@ -38,6 +38,7 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider, OM
     private var menuEvents = 0
     private var probeAttempts = 0
     private var componentsReadOnce = false
+    private val multiplayer = System.getProperty("oml.e2e.multiplayer") != null
 
     /** Probe budget: after 1200 ticks (~60s) a retried probe gives up with a failing check instead of spinning forever. */
     private fun probeGaveUp(attempts: Int, vararg checkIds: String): Boolean {
@@ -173,7 +174,14 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider, OM
         E2E.install()
         WorldProbe.register()
         E2E.expect("content.declared", "event.tick")
-        if (isServerSide()) {
+        if (isServerSide() && multiplayer) {
+            // The remote client, not an integrated server, owns the play path: assert the join
+            // itself and the two payload directions; the singleplayer-only world probes stay out.
+            E2E.expect(
+                "event.server_started", "event.player_joined",
+                "network.server_received", "network.unknown_player",
+            )
+        } else if (isServerSide()) {
             E2E.expect(
                 "content.item_components", "recipe.loaded", "worldgen.ore_feature",
                 "command.executed", "config.generated", "network.unknown_player",
@@ -189,6 +197,10 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider, OM
                 "api.server_game_rules", "api.world_particles_arguments", "api.entity_equipment",
                 "api.server_difficulty", "content.light_level",
             )
+        } else if (multiplayer) {
+            // A remote client has no integrated server and runs none of the world probes; the
+            // join, the returned payload and the first HUD frame are the client-side contract.
+            E2E.expect("event.world_load", "network.round_trip", "hud.rendered")
         } else {
             // Deliberately not expected here, because a session that stops at the main menu does not
             // reach them: `event.gui_open` needs a screen swap and `merge.overwrite_static_field` needs
@@ -307,10 +319,11 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider, OM
             ticks++
             dismissBackupGate()
             NetworkProbe.tickClientSide()
-            MergeProbe.reportResourceInjection()
+            if (!multiplayer) MergeProbe.reportResourceInjection()
             // Only an E2E run drives the probes: they kill and respawn the player, move them around, rewrite
             // game rules and place blocks. Anywhere else they would be experimenting in someone's play world.
-            if (E2E.isEnabled) {
+            // The multiplayer run is a connection test; the singleplayer pass owns the world probes.
+            if (E2E.isEnabled && !multiplayer) {
                 WorldProbe.tickClient()
                 probeClientFeatures()
             }
@@ -326,12 +339,12 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider, OM
             // The dedicated server loads its server resources during boot, which is when vanilla
             // bakes the item holders' component maps — the first point where components are
             // readable. The probe retries until the bake has run.
-            if (E2E.isEnabled) {
+            if (E2E.isEnabled && !multiplayer) {
                 probeItemComponents()
                 probeServerData()
             }
             NetworkProbe.tickServerSide()
-            if (E2E.isEnabled) WorldProbe.tickServer()
+            if (E2E.isEnabled && !multiplayer) WorldProbe.tickServer()
             if (serverTicks == 1) {
                 println("[oml_testmod] ServerTickEvent active (OML has hooked the server main loop)")
             }

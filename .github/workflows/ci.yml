@@ -5,13 +5,33 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+    inputs:
+      loader_ref:
+        description: Loader commit/tag/branch to verify
+        required: false
+        default: main
+      plugin_ref:
+        description: Gradle plugin commit/tag/branch to verify
+        required: false
+        default: main
+      testmod_ref:
+        description: TestMod commit/tag/branch to verify (empty keeps this workflow's ref)
+        required: false
+        default: ''
+      game_version:
+        description: Minecraft version
+        required: false
+        default: '26.3'
 
 permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event.inputs.loader_ref || 'event' }}
   cancel-in-progress: true
+
+env:
+  OML_GAME_VERSION: ${{ github.event.inputs.game_version || '26.3' }}
 
 jobs:
   build:
@@ -19,18 +39,20 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.inputs.testmod_ref || github.event.pull_request.head.sha || github.sha }}
       # The whole runtime layer resolves by Maven coordinate: publish the loader (all
       # publications, oml-native included — hence zig) and the plugin into mavenLocal,
       # exactly the documented development loop, then build.
       - uses: actions/checkout@v7
         with:
           repository: OhMyLoader/OhMyLoader
-          ref: main
+          ref: ${{ github.event.inputs.loader_ref || 'main' }}
           path: OhMyLoader
       - uses: actions/checkout@v7
         with:
           repository: OhMyLoader/OhMyLoaderGradle
-          ref: main
+          ref: ${{ github.event.inputs.plugin_ref || 'main' }}
           path: OhMyLoaderGradle
       - uses: actions/setup-java@v6
         with:
@@ -60,7 +82,7 @@ jobs:
       - run: ./scripts/check-oml-version.sh
       - run: ./gradlew -p OhMyLoader publishToMavenLocal
       - run: ./gradlew -p OhMyLoaderGradle publishToMavenLocal
-      - run: ./gradlew build
+      - run: ./gradlew -Poml.gameVersion="$OML_GAME_VERSION" build
 
   # The gate the build job cannot be: it actually launches the game. Both E2E jobs start the same way
   # (three checkouts + publish the layer into mavenLocal), because mavenLocal is per-job.
@@ -69,15 +91,17 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.inputs.testmod_ref || github.event.pull_request.head.sha || github.sha }}
       - uses: actions/checkout@v7
         with:
           repository: OhMyLoader/OhMyLoader
-          ref: main
+          ref: ${{ github.event.inputs.loader_ref || 'main' }}
           path: OhMyLoader
       - uses: actions/checkout@v7
         with:
           repository: OhMyLoader/OhMyLoaderGradle
-          ref: main
+          ref: ${{ github.event.inputs.plugin_ref || 'main' }}
           path: OhMyLoaderGradle
       - uses: actions/setup-java@v6
         with:
@@ -98,10 +122,10 @@ jobs:
       - uses: actions/cache@v6
         with:
           path: |
-            run/26.3/minecraft
-            run/26.3/libraries
-            run/26.3/natives
-          key: game-files-26.3
+            run/${{ github.event.inputs.game_version || '26.3' }}/minecraft
+            run/${{ github.event.inputs.game_version || '26.3' }}/libraries
+            run/${{ github.event.inputs.game_version || '26.3' }}/natives
+          key: game-files-${{ github.event.inputs.game_version || '26.3' }}-${{ hashFiles('gradle.properties', 'build.gradle.kts') }}
       - run: ./scripts/check-oml-version.sh
       - run: ./gradlew -p OhMyLoader publishToMavenLocal
       - run: ./gradlew -p OhMyLoaderGradle publishToMavenLocal
@@ -112,6 +136,8 @@ jobs:
           OML_E2E_EXPECT_EXTRA: gate.self-test.never-reported
           OML_E2E_GRACE_SECONDS: '20'
           OML_E2E_LOG: build/e2e-server-selftest.log
+          OML_E2E_CONTEXT: build/e2e-context-server-selftest.json
+          OML_E2E_RESULT: build/e2e-result-server-selftest.json
         run: |
           if ./scripts/e2e-server.sh; then
             echo "::error::the E2E gate passed a run that was supposed to fail"
@@ -131,30 +157,44 @@ jobs:
           # nothing is red rather than an absent attachment.
           OML_LOG_FILE: logs/oml-console.log
         run: ./scripts/e2e-server.sh
+      - name: The real server run must leave a verdict
+        if: always()
+        run: |
+          test -f build/e2e-result-server.json || {
+            echo "::error::the real server run left no build/e2e-result-server.json"
+            exit 1
+          }
       - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: e2e-server-logs
           path: |
             build/e2e-server*.log
+            build/e2e-*-server*.json
             run/server/logs/oml-console.log
+            run/server/logs/latest.log
+            run/server/crash-reports/**
+            run/server/hs_err_pid*.log
+            run/server/server.properties
           if-no-files-found: error
 
   e2e-client:
     runs-on: ubuntu-latest
-    # Two software-rendered boots now (self-test + real run) plus the two mavenLocal publications.
-    timeout-minutes: 60
+    # Self-test + singleplayer + the dedicated-server join, each with a software-rendered client.
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.inputs.testmod_ref || github.event.pull_request.head.sha || github.sha }}
       - uses: actions/checkout@v7
         with:
           repository: OhMyLoader/OhMyLoader
-          ref: main
+          ref: ${{ github.event.inputs.loader_ref || 'main' }}
           path: OhMyLoader
       - uses: actions/checkout@v7
         with:
           repository: OhMyLoader/OhMyLoaderGradle
-          ref: main
+          ref: ${{ github.event.inputs.plugin_ref || 'main' }}
           path: OhMyLoaderGradle
       - uses: actions/setup-java@v6
         with:
@@ -175,10 +215,10 @@ jobs:
       - uses: actions/cache@v6
         with:
           path: |
-            run/26.3/minecraft
-            run/26.3/libraries
-            run/26.3/natives
-          key: game-files-26.3
+            run/${{ github.event.inputs.game_version || '26.3' }}/minecraft
+            run/${{ github.event.inputs.game_version || '26.3' }}/libraries
+            run/${{ github.event.inputs.game_version || '26.3' }}/natives
+          key: game-files-${{ github.event.inputs.game_version || '26.3' }}-${{ hashFiles('gradle.properties', 'build.gradle.kts') }}
       # No GPU on a runner: Xvfb for the display and Mesa's software Vulkan/GL (lavapipe/llvmpipe) for
       # the renderer 26.3 uses. OpenAL is installed so the client does not log a sound-engine failure.
       - name: Headless rendering stack
@@ -207,6 +247,8 @@ jobs:
           # boot, because the tick budget accrues from the first client tick and nothing can report.
           OML_E2E_GRACE_SECONDS: '120'
           OML_E2E_LOG: build/e2e-client-selftest.log
+          OML_E2E_CONTEXT: build/e2e-context-client-selftest.json
+          OML_E2E_RESULT: build/e2e-result-client-selftest.json
         run: |
           if xvfb-run -a -s "-screen 0 1280x720x24" ./scripts/e2e-client.sh; then
             echo "::error::the client E2E gate passed a run that was supposed to fail"
@@ -231,11 +273,52 @@ jobs:
           OML_E2E_WATCHDOG: '840'
           OML_E2E_GRACE_SECONDS: '720'
         run: xvfb-run -a -s "-screen 0 1280x720x24" ./scripts/e2e-client.sh
+      - name: The real client run must leave a verdict
+        if: always()
+        run: |
+          test -f build/e2e-result-client.json || {
+            echo "::error::the real client run left no build/e2e-result-client.json"
+            exit 1
+          }
+      # The singleplayer pass owns the world probes; this one owns the remote connection. The server
+      # runs online-mode=false so the offline development client can join without a session token.
+      - name: Client/server multiplayer end-to-end
+        env:
+          LIBGL_ALWAYS_SOFTWARE: '1'
+          MESA_LOADER_DRIVER_OVERRIDE: llvmpipe
+          OML_E2E_TIMEOUT: '900'
+          OML_E2E_WATCHDOG: '840'
+          OML_E2E_GRACE_SECONDS: '720'
+        run: ./scripts/e2e-multiplayer.sh
+      - name: The multiplayer run must leave both verdicts
+        if: always()
+        run: |
+          for file in \
+            build/e2e-result-multiplayer-server.json \
+            build/e2e-result-multiplayer-client.json; do
+            test -f "$file" || {
+              echo "::error::the multiplayer run left no $file"
+              exit 1
+            }
+          done
       - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: e2e-client-logs
-          path: build/e2e-client*.log
+          path: |
+            build/e2e-client*.log
+            build/e2e-multiplayer-*.log
+            build/e2e-*client*.json
+            build/e2e-*multiplayer*.json
+            run/client/logs/latest.log
+            run/client/crash-reports/**
+            run/client/hs_err_pid*.log
+            run/client/options.txt
+            run/server/logs/latest.log
+            run/server/logs/oml-console.log
+            run/server/crash-reports/**
+            run/server/hs_err_pid*.log
+            run/server/server.properties
           # `ignore` here meant a client run that produced no log at all still looked green: the server
           # job requires its log, and the verdict line is the only evidence either gate leaves behind.
           if-no-files-found: error

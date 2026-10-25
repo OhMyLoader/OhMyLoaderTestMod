@@ -49,12 +49,16 @@ oml {
     )
 }
 
+// The multiplayer gate needs a stable offline profile name; the server runs online-mode=false and
+// derives the player UUID from this name, so the two processes only agree when it is pinned.
+providers.gradleProperty("oml.e2e.username").orNull?.let { oml.extraGameArgs.add("--username=$it") }
+
 // E2E runs (M1 of the loader workspace's development plan): the verification mod's probes end in a verdict, and the run's
 // exit code carries it, so a script or CI job can fail on it. `-Poml.e2e.ticks=N` is the whole switch
 // — without it the mod behaves exactly as before.
 providers.gradleProperty("oml.e2e.ticks").orNull?.let { ticks ->
     val e2e = listOf("-Doml.e2e=1", "-Doml.e2e.ticks=$ticks") +
-        listOf("timeoutSeconds", "graceSeconds", "expectExtra", "quickPlay").mapNotNull { name ->
+        listOf("timeoutSeconds", "graceSeconds", "expectExtra", "quickPlay", "multiplayer").mapNotNull { name ->
             providers.gradleProperty("oml.e2e.$name").orNull?.let { "-Doml.e2e.$name=$it" }
         }
     oml.extraJvmArgs.addAll(e2e)

@@ -35,6 +35,7 @@ OhMyLoader 端到端验证模组：以 **外部 mod 工程的身份**应用 `org
 ```bash
 ./scripts/e2e-server.sh          # 专用服务端门禁：RESULT PASS/FAIL + 退出码
 DISPLAY=:0 ./scripts/e2e-client.sh   # 客户端门禁（需要可显示的桌面；CI 用 xvfb-run）
+./scripts/e2e-multiplayer.sh     # 专用服务端 + 远端客户端联机门禁（内部用 xvfb-run）
 PLAY_SESSION_SECONDS=120 ./scripts/play-session.sh playtest   # 真机游玩会话
 ```
 

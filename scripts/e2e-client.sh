@@ -14,7 +14,9 @@
 # Needs a display: wrap with `xvfb-run -a` on a headless machine (CI does).
 # Env: OML_E2E_TICKS (default 200), OML_E2E_TIMEOUT (420s), OML_E2E_LOG (build/e2e-client.log),
 #      OML_E2E_QUICKPLAY (default oml-e2e-world), OML_E2E_GRACE_SECONDS, OML_E2E_WATCHDOG,
-#      OML_E2E_EXPECT_EXTRA (gate self-test), OML_E2E_NO_JOIN (title-screen self-test), OML_LOG_FILE.
+#      OML_E2E_EXPECT_EXTRA (gate self-test), OML_E2E_NO_JOIN (title-screen self-test), OML_LOG_FILE,
+#      OML_GAME_VERSION (26.3), OML_E2E_OML_VERSION (overrides the SNAPSHOT coordinate for a release gate),
+#      OML_E2E_CONTEXT / OML_E2E_RESULT (evidence paths, default build/e2e-{context,result}-client.json).
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit
 
@@ -29,16 +31,27 @@ WATCHDOG="${OML_E2E_WATCHDOG:-$((TIMEOUT - 30))}"
 # client ticks accrue on the title screen exactly as they do in a world — so booting straight to the
 # title and letting the budget expire proves the verdict can fail at a fraction of a full run's cost.
 NO_JOIN="${OML_E2E_NO_JOIN:-}"
+GAME_VERSION="${OML_E2E_GAME_VERSION:-${OML_GAME_VERSION:-26.3}}"
+export OML_E2E_GAME_VERSION="$GAME_VERSION"
+export OML_E2E_QUICKPLAY="$WORLD"
 mkdir -p "$(dirname "$LOG")"
+
+. "$(dirname "$0")/e2e-evidence.sh"
+e2e_evidence_start client "$LOG"
+trap 'rc=$?; e2e_evidence_finish "$rc"' EXIT
 
 if [ -z "$NO_JOIN" ] && [ ! -d "$WORLD_DIR" ]; then
   echo "e2e-client: no save at $WORLD_DIR — generating one with a server boot"
   # What this boot owes this script is a save directory: the server gate's verdict and exit code belong
   # to the server job, so a red code here must not read as "no world was generated".
-  OML_E2E_LOG="${LOG%.log}-worldgen.log" ./scripts/e2e-server.sh ||
+  OML_E2E_LOG="${LOG%.log}-worldgen.log" \
+  OML_E2E_CONTEXT="${LOG%.log}-worldgen-context.json" \
+  OML_E2E_RESULT="${LOG%.log}-worldgen-result.json" \
+  ./scripts/e2e-server.sh ||
     echo "e2e-client: the world-generation boot exited non-zero (the server job reports its verdict)"
   mkdir -p "$(dirname "$WORLD_DIR")"
   cp -r run/server/world "$WORLD_DIR"
+  rm -f "$WORLD_DIR/session.lock"
   # The script runs without `set -e`: a failed copy must not turn into the silent shape of "the
   # client boots, quickPlay finds no save, lands on the title screen, world_load never reports".
   if [ ! -f "$WORLD_DIR/level.dat" ]; then
@@ -46,6 +59,8 @@ if [ -z "$NO_JOIN" ] && [ ! -d "$WORLD_DIR" ]; then
     tail -40 "${LOG%.log}-worldgen.log" 2>/dev/null
     exit 1
   fi
+  # The server boot fetched the client jar and libraries the client context reports; refresh after it.
+  e2e_evidence_start client "$LOG"
 fi
 
 # Two options stand between an unattended run and a verdict:
@@ -66,7 +81,8 @@ done
 echo 'onboardAccessibility:false' >> "$OPTIONS"
 echo 'pauseOnLostFocus:false' >> "$OPTIONS"
 
-E2E_ARGS=(-Poml.e2e.ticks="$TICKS" -Poml.e2e.timeoutSeconds="$WATCHDOG")
+E2E_ARGS=(-Poml.gameVersion="$GAME_VERSION" -Poml.e2e.ticks="$TICKS" -Poml.e2e.timeoutSeconds="$WATCHDOG")
+[ -n "${OML_E2E_OML_VERSION:-}" ] && E2E_ARGS+=(-Poml_version="$OML_E2E_OML_VERSION")
 # A no-join self-test boots to the title screen: quickPlay is what would drive the join, and the
 # world-dependent probes are all null-guarded enough to sit out a session that never has one.
 if [ -z "$NO_JOIN" ]; then
