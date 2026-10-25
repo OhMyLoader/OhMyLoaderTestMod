@@ -11,6 +11,11 @@ import org.ohmyloader.api26_3.foodLevel
 import org.ohmyloader.api26_3.saturation
 import org.ohmyloader.api26_3.xpLevel
 import org.ohmyloader.api26_3.xpProgress
+import org.ohmyloader.api26_3.allowFlight
+import org.ohmyloader.api26_3.isFlying
+import org.ohmyloader.api26_3.invulnerable
+import org.ohmyloader.api26_3.explode
+import org.ohmyloader.api26_3.OMLBossBar
 import kotlin.math.abs
 
 /**
@@ -103,6 +108,12 @@ object PlayCommands {
             subcommand("xp") { argument("levels", OMLArgumentType.INTEGER) { levels ->
                 executes { withPlayer(it) { p -> grantLevels(p, it[levels]) } }
             } }
+            // The ability toggles a utility mod flips: flight and invulnerability, read back.
+            subcommand("fly") { executes { withPlayer(it) { p -> toggleFlight(p) } } }
+            // A boss bar on the game's own bar rendering: up, progress step, down.
+            subcommand("boss") { executes { withPlayer(it) { p -> showBossBar(p) } } }
+            // An explosion where the player stands, on the game's own TNT path.
+            subcommand("boom") { executes { withPlayer(it) { p -> explodeAt(p) } } }
             // The creative book is the one screen a mod's own content has to reach, so the kit can put the
             // player in creative and ask what the game's tab registry actually holds.
             subcommand("creative") { executes { withPlayer(it) { p -> goCreative(p) } } }
@@ -442,6 +453,34 @@ object PlayCommands {
         val before = p.xpLevel
         p.giveExperienceLevels(levels)
         return "level $before -> ${p.xpLevel}, progress ${p.xpProgress}"
+    }
+
+    /** Flips the flight ability and lands or lifts with it; the readback is the claim. */
+    private fun toggleFlight(p: ServerPlayer): String {
+        p.allowFlight = !p.allowFlight
+        if (!p.allowFlight) p.isFlying = false
+        return "mayfly=${p.allowFlight} flying=${p.isFlying}"
+    }
+
+    /** A boss bar on the game's own rendering: appears, fills in two steps, and goes away. */
+    private fun showBossBar(p: ServerPlayer): String {
+        val bar = OMLBossBar("The Kit Boss")
+        bar.addPlayer(p)
+        bar.progress = 0.5f
+        bar.progress = 1.0f
+        val seen = p in bar.players
+        bar.removeAllPlayers()
+        return "boss bar shown=$seen, players left=${bar.players.size}"
+    }
+
+    /** The game's own TNT explosion where the player stands — invulnerable, so the player survives to report. */
+    private fun explodeAt(p: ServerPlayer): String {
+        val level = p.level()
+        val wasInvulnerable = p.invulnerable
+        p.invulnerable = true
+        level.explode(4f, p.x, p.y, p.z)
+        p.invulnerable = wasInvulnerable
+        return "exploded at ${p.blockPosition()}, still standing=${p.health > 0f}"
     }
 
     private fun keeperStatus(source: OMLCommandSource): String {
