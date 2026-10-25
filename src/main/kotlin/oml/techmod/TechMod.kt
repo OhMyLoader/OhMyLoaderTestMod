@@ -47,6 +47,10 @@ class TechMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider {
 
         /** One press cycle, in game ticks (3 seconds). */
         const val PRESS_TICKS_PER_CYCLE = 60
+
+        /** The press layout: slot 0 takes the input, slot 1 collects the product. */
+        const val INPUT_SLOT = 0
+        const val OUTPUT_SLOT = 1
     }
 
     override fun declareContent(registry: ContentRegistry) {
@@ -79,7 +83,8 @@ class TechMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider {
             registry.declareSmelting(input = raw, result = ingot, experience = 0.7)
         }
 
-        // Dust: raw crushed. Missing: manual recipe / crushing machine — only the machine produces it
+        // Dust: raw crushed in the press — the same machine covers the whole chain
+        // (raw → dust, ingot → plate), so the dust anchor is retired with the container API
         for (dust in DUST_ITEMS) {
             registry.declareItem(dust)
         }
@@ -94,56 +99,45 @@ class TechMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider {
         registry.declareDamageType(id = "crush", messageId = "techmod.crushes")
         registry.declareTag("minecraft:damage_type", "oml_testmod:melting_causes") { element("crush") }
 
-        // The press exercises the BlockEntity API: its tick belongs to the block rather than to a
-        // global SERVER_TICK handler, and its progress, input and output persist in OMLBlockData with
-        // the world. The production path is the machine's own: hit the press holding an ingot to load
-        // it, the tick presses, hit it again with an empty hand to take the plate.
+        // The press exercises the machine API end to end: slots (the chest interface opens on
+        // right-click, input slot 0 / output slot 1), the tick (bound to the block, progress in
+        // OMLBlockData), and both production paths of the material chain — ingots press into
+        // plates, raw ore crushes into dust — the whole chain runs on the machine's own surface.
         registry.declareBlock("press") {
             hardness = 3.5f
             blastResistance = 6.0f
             dropsRequireCorrectTool = true
             blockEntity {
+                slots(rows = 1, title = "Press")
                 tick { event ->
-                    val input = event.data.getItemStack("input") ?: return@tick
+                    val slots = event.slots ?: return@tick
+                    val input = slots.stackAt(INPUT_SLOT) ?: return@tick
+                    val product = when {
+                        input.itemId.endsWith("_ingot") -> input.itemId.replace("_ingot", "_plate")
+                        input.itemId.startsWith("techmod:raw_") -> input.itemId.replace("raw_", "").replace("ore", "dust").let {
+                            // raw_copper → copper_dust: the raw form names the material directly
+                            input.itemId.replace("raw_", "").plus("_dust")
+                        }
+
+                        else -> return@tick
+                    }
                     val progress = event.data.getInt("progress") + 1
                     if (progress >= PRESS_TICKS_PER_CYCLE) {
-                        val plate = input.itemId.replace("_ingot", "_plate")
-                        val existing = event.data.getItemStack("output")
-                        event.data.putItemStack(
-                            "output",
-                            if (existing?.itemId == plate) OMLDataItemStack(plate, existing.count + 1)
-                            else OMLDataItemStack(plate, 1),
-                        )
-                        event.data.remove("input")
+                        val existing = slots.stackAt(OUTPUT_SLOT)
+                        val merged = when {
+                            existing == null -> OMLDataItemStack(product, 1)
+                            existing.itemId == product -> OMLDataItemStack(product, existing.count + 1)
+                            else -> null // a different product waits: the output slot must be freed first
+                        } ?: return@tick
+                        slots.putStack(OUTPUT_SLOT, merged)
+                        val consumed = input.copy(count = input.count - 1)
+                        slots.putStack(INPUT_SLOT, consumed.takeIf { it.count > 0 })
                         event.data.putInt("progress", 0)
-                        println("[techmod] press at ${event.x}/${event.y}/${event.z}: pressed a $plate")
+                        println("[techmod] press at ${event.x}/${event.y}/${event.z}: produced $product")
                     } else {
                         event.data.putInt("progress", progress)
                     }
                 }
-            }
-            onHit { event ->
-                if (event.isClient) return@onHit
-                val player = event.player as? Player ?: return@onHit
-                val level = event.serverLevel ?: return@onHit
-                val data = level.blockDataAt(BlockPos(event.x, event.y, event.z)) ?: return@onHit
-                val output = data.getItemStack("output")
-                if (output != null) {
-                    player.giveItem(output.itemId, output.count)
-                    data.remove("output")
-                    player.sendSystemMessage("[techmod] press yields ${output.count}x ${output.itemId}")
-                    return@onHit
-                }
-                if (data.getItemStack("input") != null) {
-                    player.sendSystemMessage("[techmod] press is already pressing")
-                    return@onHit
-                }
-                val held = player.itemIn("mainhand")?.itemId ?: return@onHit
-                val ingot = INGOT_ITEMS.firstOrNull { "techmod:$it" == held } ?: return@onHit
-                player.inventory.remove(held, 1)
-                data.putItemStack("input", OMLDataItemStack(held, 1))
-                data.putInt("progress", 0)
-                player.sendSystemMessage("[techmod] press loaded with $ingot")
             }
         }
         registry.declareShapedCrafting(
