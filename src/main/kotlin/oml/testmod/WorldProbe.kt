@@ -1,6 +1,8 @@
 package oml.testmod
 
 import kotlin.math.abs
+import kotlin.math.ceil
+import kotlin.math.floor
 
 import net.minecraft.core.BlockPos
 import net.minecraft.core.Direction
@@ -2383,7 +2385,13 @@ object WorldProbe {
                 )
                 return true
             }
-            val launch = openAirRun(world, at) ?: return false
+            // No clear lane in the whole climb counts like a lost shot: bounded attempts, then a
+            // named failure — returning false forever would read as "never reported" instead.
+            val launch = openAirRun(world, at)
+            if (launch == null) {
+                motionAttempts++
+                return false
+            }
             val shot = world.spawnEntity(SNOWBALL, launch.first, launch.second, launch.third) ?: return false
             shot.setDeltaMovement(MOTION_X, 0.0, 0.0)
             val written = shot.deltaMovement
@@ -2418,18 +2426,28 @@ object WorldProbe {
     }
 
     /**
-     * A launch point with a clear run along +x, climbed up from above the player's head until the blocks
-     * say air. Position 2.5 off the player is where a spawned entity lands anyway; the run is measured
-     * generously because the shot keeps traveling after the window closes.
+     * A launch point with a clear run along +x, climbed up from above the player's head until the
+     * blocks say air. The corridor is verified along the shot's OWN line — 2.5 off the player in x
+     * and z, both z columns the hitbox spans, and one level below for the fall: checking the
+     * player's column instead verified a lane the shot never flew, and terrain standing beside the
+     * player removed every attempt. The run is measured generously because the shot keeps
+     * traveling after the window closes.
      */
     private fun openAirRun(world: Level, at: Vec3): Triple<Double, Double, Double>? {
+        val shotX = at.x() + 2.5
+        val shotZ = at.z() + 2.5
+        val zColumns = listOf(floor(shotZ).toInt(), ceil(shotZ).toInt()).distinct()
+        val runFrom = floor(shotX).toInt()
         var y = at.y() + SHOT_LIFT
         repeat(SHOT_CLIMB) {
             val level = y.toInt()
-            val clear = (0..SHOT_RUN).all { step ->
-                world.blockIdAt(BlockPos((at.x() + step).toInt(), level, at.z().toInt())) == AIR
+            val clear = zColumns.all { z ->
+                (0..SHOT_RUN).all { step ->
+                    world.blockIdAt(BlockPos(runFrom + step, level, z)) == AIR &&
+                        world.blockIdAt(BlockPos(runFrom + step, level - 1, z)) == AIR
+                }
             }
-            if (clear) return Triple(at.x() + 2.5, y, at.z() + 2.5)
+            if (clear) return Triple(shotX, y, shotZ)
             y += 1.0
         }
         return null
