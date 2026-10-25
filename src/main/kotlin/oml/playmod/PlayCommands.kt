@@ -34,6 +34,8 @@ object PlayCommands {
 
     fun declare(commands: OMLCommandRegistry) {
         commands.register("kit") {
+            // An alias is a full tree: same leaves, same gates, registered beside the primary.
+            aliases = listOf("playground")
             answers { help(it) }
 
             subcommand("give") { executes { withPlayer(it) { p -> giveKit(p) } } }
@@ -79,7 +81,13 @@ object PlayCommands {
             }
             subcommand("mob") {
                 permissionNode = KEEPER_NODE
-                argument("type", OMLArgumentType.WORD) { type ->
+                // Suggestions: the living types a /summon would accept, offered as the player types.
+                argument(
+                    "type",
+                    OMLArgumentType.WithSuggestions { _ ->
+                        listOf("minecraft:cow", "minecraft:pig", "minecraft:sheep", "minecraft:zombie")
+                    },
+                ) { type ->
                     argument("count", OMLArgumentType.INTEGER) { count ->
                         answers { summon(it, it[type], it[count]) }
                     }
