@@ -1458,7 +1458,9 @@ object WorldProbe {
                 ),
             "an unloaded position answers null, without loading it" to (unloaded == null && unloadedStillUnloaded),
             "taking the block took the block entity too" to (removed && afterRemoval == null),
-            "a press is not storage" to (entity as? Container == null),
+            // The press declares slots(1, "Press"), so the machine IS its declared storage now —
+            // the entity the game holds exposes exactly the 9-slot container the interface renders.
+            "a press is its declared storage" to ((entity as? Container)?.containerSize == 9),
         )
         E2E.check(
             "api.block_entity_read",
@@ -1479,8 +1481,9 @@ object WorldProbe {
      * same coordinates. Isolation is the point: a store addressed by position alone would answer for both
      * dimensions with one value, while the game holds one block entity per position **per level**. The progress
      * leg shows the address is the store the game ticks rather than a copy of it — the press counts only while
-     * it holds input (an idle machine must not spin), so the leg loads it through the same address it is
-     * testing — and the identity leg shows the ticker's view and this one are the same object. Three refusals
+     * slot 0 holds input (an idle machine must not spin), so the leg loads it through the machine's slot
+     * surface while the progress it awaits rides blockData, proving both surfaces reach the one machine —
+     * and the identity leg shows the ticker's view and this one are the same object. Three refusals
      * close the contract: a position whose block has no block entity, an unloaded position, and a dimension
      * this server never loaded.
      */
@@ -1525,10 +1528,12 @@ object WorldProbe {
             dataA.putInt("side", 1)
             dataB.putInt("side", 2)
             dataA.putString("only_in_a", "a")
-            // The press counts only while it holds input — the machine's own contract, an idle press
-            // must not spin — so the ticker leg loads it through this very address, which also runs the
-            // data-track item stack through the same store the ticker reads.
-            dataA.putItemStack("input", OMLDataItemStack("techmod:copper_ingot", 1))
+            // The press counts only while slot 0 holds input — the machine's own contract, an idle
+            // press must not spin — so the ticker leg loads it through the machine's slot surface
+            // (machineSlotsAt): the same store the chest interface renders, and the same entity the
+            // block-data legs below address. The progress the ticker writes still rides blockData,
+            // so the leg proves both surfaces reach one machine.
+            a.machineSlotsAt(PRESS_DATA_POSITION)?.putStack(0, OMLDataItemStack("techmod:copper_ingot", 1))
             pressDataIdentity = (a.blockEntityAt(PRESS_DATA_POSITION) as? OMLBlockDataCarrier)
                 ?.blockData === dataA
             pressDataProgressBefore = dataA.getInt("progress")
