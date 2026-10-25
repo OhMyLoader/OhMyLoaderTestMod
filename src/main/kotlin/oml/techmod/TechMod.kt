@@ -114,10 +114,8 @@ class TechMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider {
                     val input = slots.stackAt(INPUT_SLOT) ?: return@tick
                     val product = when {
                         input.itemId.endsWith("_ingot") -> input.itemId.replace("_ingot", "_plate")
-                        input.itemId.startsWith("techmod:raw_") -> input.itemId.replace("raw_", "").replace("ore", "dust").let {
-                            // raw_copper → copper_dust: the raw form names the material directly
-                            input.itemId.replace("raw_", "").plus("_dust")
-                        }
+                        // raw_copper → copper_dust: the raw form names the material directly
+                        input.itemId.startsWith("techmod:raw_") -> input.itemId.replace("raw_", "") + "_dust"
 
                         else -> return@tick
                     }
