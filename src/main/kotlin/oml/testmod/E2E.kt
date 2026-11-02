@@ -1,6 +1,8 @@
 package oml.testmod
 
 import oml.testmod.E2E.quitClient
+import net.minecraft.client.gui.screens.DisconnectedScreen
+import net.minecraft.network.DisconnectionDetails
 import org.ohmyloader.api26_3.OMLGame
 import org.ohmyloader.api26_3.currentScreen
 import org.ohmyloader.api26_3.event.Events
@@ -142,8 +144,12 @@ object E2E {
     private fun tick(target: Int, grace: Int) {
         ticksSeen++
         if (ticksSeen % 600 == 0 && !isServerSide()) printClientState()
-        if (ticksSeen < target) return
-        if (missingExpected().isNotEmpty() && elapsedSeconds() < grace) return
+        val refusal = multiplayerRefusal()
+        if (refusal != null) check("network.join", false, refusal)
+        if (refusal == null) {
+            if (ticksSeen < target) return
+            if (missingExpected().isNotEmpty() && elapsedSeconds() < grace) return
+        }
         if (!ready.compareAndSet(false, true)) return
         val side = if (isServerSide()) "server" else "client"
         val missing = missingExpected()
@@ -152,6 +158,30 @@ object E2E {
                 if (missing.isEmpty()) "" else " incomplete=${missing.size} (${missing.joinToString(",")})",
         )
         if (side == "client") quitClient()
+    }
+
+    /** `oml.e2e.multiplayer=1`: this run joins the dedicated server the harness started alongside it. */
+    private val multiplayer = System.getProperty("oml.e2e.multiplayer") != null
+
+    /**
+     * Why a multiplayer run is already over, or null while the join can still happen. A rejected client
+     * sits on the disconnect screen with no level and gets no further on its own, so the run ends on the
+     * first tick that sees it rather than waiting out the grace window for the same verdict. The screen's
+     * reason belongs in the verdict line because the client log never carries it — there it stops at
+     * "Connecting to", and the rejection itself is a server console line.
+     */
+    private fun multiplayerRefusal(): String? {
+        if (!multiplayer) return null
+        val client = OMLGame.client ?: return null
+        if (client.level != null) return null
+        val screen = client.currentScreen as? DisconnectedScreen ?: return null
+        val reason = runCatching {
+            val details = DisconnectedScreen::class.java.getDeclaredField("details")
+                .apply { isAccessible = true }
+                .get(screen) as DisconnectionDetails
+            details.reason().string
+        }.getOrNull()
+        return "the client is on the disconnect screen${if (reason == null) "" else ": $reason"}"
     }
 
     private fun elapsedSeconds(): Long = (System.nanoTime() - startedNanos) / 1_000_000_000

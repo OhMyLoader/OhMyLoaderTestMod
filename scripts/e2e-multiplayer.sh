@@ -60,6 +60,9 @@ set_property() {
 set_property server-port "$PORT"
 set_property online-mode false
 set_property enforce-secure-profile false
+# 26.3 generates white-list=true, and a white-listed server rejects the join at login — before the
+# player is ever in a level, so nothing the client probes could observe has a chance to run.
+set_property white-list false
 if ! grep -q '^level-seed=' "$SERVER_PROPERTIES" 2>/dev/null; then
   set_property level-seed "$SEED"
 fi
