@@ -1,54 +1,59 @@
-# techmod —— API 打样模组与缺口清单
+# techmod: API Sample Mod and Gap List
 
-本仓库里有三个模组（同一个 jar 三个 `@Mod` 入口）：
+This repository contains three mods in one jar, with three `@Mod` entry points:
 
-- `oml_testmod`（`oml.testmod`）：端到端验证模组，逐条覆盖加载器能力，跑在开发闭环里；
-- `techmod`（`oml.techmod`）： **API 打样**模组，故意按真实模组的写法做一个材料链，
-  用来暴露 `oml-api` 的缺口（就是本文件）；
-- `oml_playmod`（`oml.playmod`）：真机游玩模组，见仓库根 README 的「真机门禁与游玩会话」。
+- `oml_testmod` (`oml.testmod`): the end-to-end verification mod; it covers loader capabilities one by one in
+  the development loop.
+- `techmod` (`oml.techmod`): the API sample mod. It deliberately uses APIs the way a real mod would, with a
+  material chain, to expose gaps in `oml-api`. This file tracks those gaps.
+- `oml_playmod` (`oml.playmod`): the playable mod; see the E2E section in the repository README.
 
-## 打样规则
+## Sample rules
 
-1. **全程只用 `oml-api`**，不碰 `platform` 逃生舱；
-2. 每遇到一个 API 缺口，就在声明处留一条 `Missing:` 注释（作为代码锚点），并记入本文件的缺口清单， **不在 mod 里绕过去**
-   ——绕过就失去了打样的意义。
+1. Use only `oml-api`; do not use the `platform` escape hatch.
+2. When an API gap appears, leave a `Missing:` comment at the declaration as a code anchor and add the gap to
+   this file. Do not work around it in the mod; a workaround defeats the sample.
 
-## M1 范围（已实现）
+## M1 scope (implemented)
 
-铜 / 锡两条材料链：
+Two material chains, copper and tin:
 
-| 内容                         | 声明方式                          | 说明                             |
-|------------------------------|-----------------------------------|----------------------------------|
-| `copper_ore` / `tin_ore`     | `declareBlock`                    | 石头强度等级、需要正确工具才掉落 |
-| `raw_copper` / `raw_tin`     | `declareItem`                     | 挖掘矿石的产物                   |
-| `copper_ingot` / `tin_ingot` | `declareItem` + `declareSmelting` | 熔炼配方走数据包路径             |
-| `*_dust` / `*_plate`         | `declareItem`                     | 中间产物，等待加工链 API         |
+| Content | Declaration | Notes |
+|---|---|---|
+| `copper_ore` / `tin_ore` | `declareBlock` | Stone-tier hardness; drops require the correct tool |
+| `raw_copper` / `raw_tin` | `declareItem` | Ore mining output |
+| `copper_ingot` / `tin_ingot` | `declareItem` + `declareSmelting` | Smelting recipes use the data pack path |
+| `*_dust` / `*_plate` | `declareItem` | Intermediate items produced by the press |
 
-矿石掉落用 `declareBlockDrop` 声明（数据包掉落表覆盖）。
+Ore drops use `declareBlockDrop` and the data pack loot table.
 
-## 缺口清单
+## Gap list and remaining limitations
 
-> 零逃生舱收口审计（2026-10-24，M5）：两个参考模组的原始版本对象访问已全部收编为 api26_3 类型化访问器
-> （`OMLCommandSource.player`、行为载荷的 `serverLevel` / `stepper` / `hitBy`），`platform` 在两个模组中已无
-> 使用点；类型化载荷上的常规类型窄化（`LivingEntity → ServerPlayer`）不属逃生舱。
+> Zero escape-hatch audit (2026-10-24, M5): both reference mods now access versioned game objects only through
+> typed `api26_3` accessors (`OMLCommandSource.player`; `serverLevel`, `stepper`, and `hitBy` on behavior
+> payloads). Neither mod uses `platform`. Normal type narrowing on a typed payload (`LivingEntity` to
+> `ServerPlayer`) is not an escape hatch.
 
-| 缺口                                  | 影响                                                                                                          | 代码锚点                                                                                |
-|---------------------------------------|---------------------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------|
-| ~~**世界生成 API**~~ ✅ M2            | ~~矿石不会自然生成在地下，只能 `/setblock` 放置~~ `generateAsOre` 已落地（M2 / T-2.3），铜/锡矿自然生成       | `TechMod.kt` 的 `generateAsOre`                                                         |
-| **手动 / 机器配方**（缩小）           | 压制机的压板产出途径已落地（方块数据物品栈 + 行为钩子，M5 / T-5.2）；粉仍缺破碎途径——crushing machine 需要更宽的输入面 | `TechMod.kt` 的 `Missing: manual recipe / crushing machine` |
-| ~~**BlockEntity / tick 逻辑**~~ ✅ M2 | ~~机器 tick 只能挂在全局 `SERVER_TICK` 上~~ `blockEntity { tick { } }` 已落地（M2 / T-2.2），压制机进度持久化 | `TechMod.kt` 的 `blockEntity`                                                           |
-| **方块行为的自定义**（缩小）          | 声明式行为钩子（`onStepOn` / `onHit`）已落地（M2 / T-2.1）；完全自定义的方块类仍走 `platform` 逃生舱          | `ContentRegistry` 的类文档                                                              |
+No `Missing:` anchors remain as of 2026-10-24. The press now covers raw ore → dust and ingot → plate
+through the declarative container API; the previous manual/machine-recipe gap is closed.
 
-## 运行
+| Gap | Impact | Code anchor |
+|---|---|---|
+| Worldgen API (resolved, M2) | `generateAsOre` landed (M2 / T-2.3); copper and tin generate naturally. | `generateAsOre` in `TechMod.kt` |
+| BlockEntity / tick logic (resolved, M2) | `blockEntity { tick { } }` landed (M2 / T-2.2); press progress persists. | `blockEntity` in `TechMod.kt` |
+| **Custom block behavior** (remaining limitation) | Declarative behavior hooks (`onStepOn` / `onHit`) landed (M2 / T-2.1). A fully custom block class still uses the `platform` escape hatch. | `ContentRegistry` class documentation |
 
-三个模组在同一个 jar 里（同一个 jar 三个 `@Mod` 入口），按本仓库 README 的开发闭环启动即可：
+## Run
+
+The three mods share one jar. Use the development loop in the repository README:
 
 ```bash
-# 在 OhMyLoader/ 与 OhMyLoaderGradle/ 各发布一次
+# Publish once in OhMyLoader/ and OhMyLoaderGradle/
 (cd ../OhMyLoader && ./gradlew publishToMavenLocal)
 (cd ../OhMyLoaderGradle && ./gradlew publishToMavenLocal)
-# 然后在本仓库
-./gradlew runClient     # 或 runServer
+# Then in this repository:
+./gradlew runClient     # or runServer
 ```
 
-进游戏后用 `/give @s techmod:copper_ingot` 之类的指令取物；`/setblock` 可以放置矿石方块验证材质与掉落。
+In game, use commands such as `/give @s techmod:copper_ingot` to obtain items; `/setblock` places ore blocks
+for texture and drop checks.
