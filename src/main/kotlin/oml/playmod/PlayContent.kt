@@ -172,7 +172,7 @@ object PlayContent {
             lakes = false
         }
 
-        // --- the groups: the game's own behaviour reads these --------------------------------------
+        // --- the groups: the game's own behavior reads these --------------------------------------
         registry.declareTag("minecraft:block", "minecraft:mineable/pickaxe") {
             element(ORE)
             element(BLOCK)

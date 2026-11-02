@@ -55,7 +55,7 @@ import java.util.*
  *
  * Reading proves the mod is handed the objects the game holds; driving game methods proves the hooks fire. An
  * unattended run has no hand, so the probe calls `destroyBlock` / `attack` / `interactOn` / `hurtServer` /
- * `useItemOn` / `useItem` itself with its own cancelling handler armed: cancellation keeps the driven call from
+ * `useItemOn` / `useItem` itself with its own canceling handler armed: cancellation keeps the driven call from
  * changing the world, and the game's return value and the entity's health are what the assertions read.
  */
 object WorldProbe {
@@ -297,7 +297,7 @@ object WorldProbe {
     private val broadcastMarker = "oml-e2e-broadcast-${System.nanoTime()}"
     private val systemMarker = "oml-e2e-system-${System.nanoTime()}"
 
-    // What the cancelling handlers observed; the driving step reads them back and reports once.
+    // What the canceling handlers observed; the driving step reads them back and reports once.
     private var breakObservation: Pair<BlockPos, String>? = null
     private var attackObservation: String? = null
     private var interactObservation: InteractionHand? = null
@@ -516,13 +516,13 @@ object WorldProbe {
                 hurtObservation = Triple(event.amount, event.source.type().msgId(), event.source.entity != null)
                 event.cancel()
             }
-            // Not cancelling: the point is that the game applies the written number, so this handler has
+            // Not canceling: the point is that the game applies the written number, so this handler has
             // to let the damage through.
             if (driveHurtRewrite && event.entity.uuid == drivenUuid) {
                 rewriteObservation = event.amount
                 event.amount = REWRITTEN_AMOUNT
             }
-            // Neither cancelling nor rewriting: this is the damage the probe *dealt*, and the point is
+            // Neither canceling nor rewriting: this is the damage the probe *dealt*, and the point is
             // that the game runs it through the same hook a mob's attack uses.
             if (driveHurtAction && event.entity.uuid == drivenUuid) {
                 hurtActionObservation = Triple(event.amount, event.source.type().msgId(), event.source.entity != null)
@@ -2992,7 +2992,7 @@ object WorldProbe {
     }
 
     /**
-     * The same driven damage, with the handler rewriting the number instead of cancelling it. What the
+     * The same driven damage, with the handler rewriting the number instead of canceling it. What the
      * player loses is the game's own arithmetic on top of the number (armor, difficulty), and an
      * application inside the game's damage cooldown is reduced by the previous one — so the verdict is a
      * comparison: the same damage through the same path has to cost more once a handler wrote a bigger
@@ -3189,7 +3189,7 @@ object WorldProbe {
         if (run.repeatRuns >= 3) run.afterCancel++
         if (run.repeatRuns > 3) {
             run.done = true
-            E2E.check(run.name, false, "the cancelled repeat kept running (${run.repeatRuns} times)")
+            E2E.check(run.name, false, "the canceled repeat kept running (${run.repeatRuns} times)")
         } else if (run.afterCancel >= 6) {
             // The queue's own tick and this counter advance inside the same game tick, and their order in
             // that tick is not observable from here, so a delay of N reads as N or N-1. What the band is

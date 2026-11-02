@@ -84,7 +84,7 @@ say()   { focus; DISPLAY=:0 xdotool key t; sleep 0.7
 shot()  { focus; DISPLAY=:0 xdotool key F2; sleep 1.5; }
 press() { focus; DISPLAY=:0 xdotool key "$1"; sleep "${2:-2}"; }
 # Death is part of play, and the death screen takes the mouse: its respawn button sits in the middle of the
-# window, a little below the centre. Clicking there in the world is only a punch, so this is safe when alive.
+# window, a little below the center. Clicking there in the world is only a punch, so this is safe when alive.
 GEOM="$(DISPLAY=:0 xdotool getwindowgeometry --shell "$WIN")"
 WIN_W="$(sed -n 's/^WIDTH=//p' <<<"$GEOM")"; WIN_H="$(sed -n 's/^HEIGHT=//p' <<<"$GEOM")"
 revive() { focus; DISPLAY=:0 xdotool mousemove --window "$WIN" $((WIN_W / 2)) $((WIN_H / 2 + 12))
