@@ -220,6 +220,10 @@ object WorldProbe {
     private val CHUNK_PROBE_POSITION = BlockPos(8, 64, 8)
     private const val CHUNK_PROBE_BLOCK = "minecraft:stone"
     private const val CHUNK_TICK_WAIT_LIMIT = 60
+    // The integrated server processes released chunks through ChunkMap's unload queue after its
+    // initial spawn work; the dedicated server drains the same queue immediately. Keep the event
+    // assertion, but allow the integrated queue a bounded 15-second window.
+    private const val CHUNK_UNLOAD_WAIT_LIMIT = 300
 
     /** How long the destination's id table may take to answer for a teleported entity. */
     private const val ENTITY_ARRIVAL_WAIT_TICKS = 20
@@ -1708,6 +1712,9 @@ object WorldProbe {
      * `CHUNK_UNLOADED` is that report. Every number here is a tick window, so a phase that never arrives
      * reports red instead of waiting for the run to end.
      */
+    private fun noSave(level: ServerLevel): Boolean? =
+        runCatching { level.javaClass.getField("noSave").getBoolean(level) }.getOrNull()
+
     private fun probeChunkLifecycle(): Boolean {
         val server = OMLGame.server ?: return false
         val level = server.levelById(MOD_DIMENSION) ?: return false
@@ -1763,13 +1770,21 @@ object WorldProbe {
         }
         if (chunkPhase == 2) {
             if (!chunkUnloadedSeen) {
-                if (elapsed < CHUNK_TICK_WAIT_LIMIT) return false
+                if (elapsed == CHUNK_TICK_WAIT_LIMIT) {
+                    println(
+                        "[oml_testmod] chunk unload pending at $elapsed ticks: " +
+                            "isLoaded=${level.isLoaded(CHUNK_PROBE_POSITION)} " +
+                            "forced=${level.forceLoadedChunkPositions} noSave=${noSave(level)}",
+                    )
+                }
+                if (elapsed < CHUNK_UNLOAD_WAIT_LIMIT) return false
                 chunkPhaseFlags += ("the game reported the chunk dropped" to false)
                 E2E.check(
                     "api.chunk_lifecycle", false,
                     "${chunkPhaseFlags.filterNot { it.second }.map { it.first }} failed; " +
                         "CHUNK_UNLOADED never arrived in $elapsed ticks after release, " +
-                        "isLoaded=${level.isLoaded(CHUNK_PROBE_POSITION)}",
+                        "isLoaded=${level.isLoaded(CHUNK_PROBE_POSITION)} " +
+                        "forced=${level.forceLoadedChunkPositions} noSave=${noSave(level)}",
                 )
                 chunkPhase = 4
                 return true
