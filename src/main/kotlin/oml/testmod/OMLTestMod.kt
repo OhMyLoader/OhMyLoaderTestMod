@@ -75,6 +75,15 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider, OM
         // content.light_level step reads back through the game's own light property.
         registry.declareBlock("lamp") { lightLevel = 14 }
 
+        // Worldgen breadth probe: a tree (this block is the trunk) and a ground plant, materialized
+        // into the 26.3 datapack shapes and merged into the vegetation step. The gate checks the
+        // placed features registered; in game, newly generated chunks grow them.
+        registry.declareBlock("ruby_log") {
+            generateAsTree { leaves = "oml_testmod:ruby_leaves" }
+        }
+        registry.declareBlock("ruby_leaves")
+        registry.declareBlock("ruby_bloom") { generateAsPlant { perChunk = 12 } }
+
         // Data-component integration probe: a sword-ish item with native components. The adapter
         // materializes maxDurability into DataComponents.MAX_DAMAGE, the attack values into
         // DataComponents.ATTRIBUTE_MODIFIERS (ADD_VALUE modifiers on ATTACK_DAMAGE / ATTACK_SPEED,
@@ -183,7 +192,7 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider, OM
             )
         } else if (isServerSide()) {
             E2E.expect(
-                "content.item_components", "recipe.loaded", "worldgen.ore_feature",
+                "content.item_components", "recipe.loaded", "worldgen.ore_feature", "worldgen.vegetation_feature",
                 "command.executed", "config.generated", "network.unknown_player",
                 "event.server_started", "api.server_handle", "api.server_level_lookup",
                 "api.registry_reads", "scheduler.server_task",
@@ -586,20 +595,30 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider, OM
             val recipesOk = recipeLoaded("techmod_raw_copper") && recipeLoaded("techmod_raw_tin")
             E2E.check("recipe.loaded", recipesOk, "techmod smelting recipes missing from the recipe manager")
 
-            // worldgen.ore_feature — the placed features the ore declarations materialized.
+            // worldgen.ore_feature — the placed features the ore declarations materialized (the
+            // data-track pack), plus the tree and plant the code track declares under the mod id.
             val placedFeatures = server.registryAccess().lookupOrThrow(Registries.PLACED_FEATURE)
 
-            fun oreFeatureLoaded(id: String): Boolean = placedFeatures.containsKey(
+            fun placedFeatureLoaded(namespace: String, id: String): Boolean = placedFeatures.containsKey(
                 ResourceKey.create(
-                    Registries.PLACED_FEATURE, Identifier.fromNamespaceAndPath("techmod", id),
+                    Registries.PLACED_FEATURE, Identifier.fromNamespaceAndPath(namespace, id),
                 ),
             )
 
-            val featuresOk = oreFeatureLoaded("ore_copper_ore") && oreFeatureLoaded("ore_tin_ore")
+            val featuresOk = placedFeatureLoaded("techmod", "ore_copper_ore") &&
+                placedFeatureLoaded("techmod", "ore_tin_ore")
             E2E.check(
                 "worldgen.ore_feature",
                 featuresOk,
                 "techmod placed features missing from the worldgen registries",
+            )
+
+            val vegetationOk = placedFeatureLoaded("oml_testmod", "tree_ruby_log") &&
+                placedFeatureLoaded("oml_testmod", "plant_ruby_bloom")
+            E2E.check(
+                "worldgen.vegetation_feature",
+                vegetationOk,
+                "the declared tree/plant placed features are missing from the worldgen registries",
             )
 
             // command.executed — dispatch our own probe command through the live dispatcher; the
