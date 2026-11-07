@@ -1,11 +1,11 @@
 package oml.testmod;
 
-import org.ohmyloader.api.mixin.Accessor;
-import org.ohmyloader.api.mixin.Mixin;
+import org.ohmyloader.api.hook.FieldAccess;
+import org.ohmyloader.api.hook.Hooked;
 
 
 /**
- * Interface-mixin demo: {@code @Accessor} is declared on an abstract method of an interface, and
+ * Interface-mixin demo: {@code @FieldAccess} is declared on an abstract method of an interface, and
  * the engine synthesizes a method body in the target class according to the signature — private
  * fields can then be accessed without reflection.
  * <p>The "1 accessor synthesized" entry in the merge log is the E2E acceptance point: the interface
@@ -14,7 +14,7 @@ import org.ohmyloader.api.mixin.Mixin;
  * not a silent skip). That the synthesized method actually gets invoked is proven by
  * {@code ClassMergerTest} (merge → define → invoke reflectively → assert the value read).</p>
  */
-@Mixin(target = "net.minecraft.client.Minecraft")
+@Hooked(target = "net.minecraft.client.Minecraft")
 public interface MinecraftAccessors {
 
     /**
@@ -24,6 +24,6 @@ public interface MinecraftAccessors {
      * fails loudly on that now). The target is re-verified against the real 26.3 jar on every
      * launch, so a drifted anchor fails the startup loudly.
      */
-    @Accessor("demo")
+    @FieldAccess("demo")
     boolean readDemoFlag();
 }

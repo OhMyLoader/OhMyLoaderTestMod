@@ -1,9 +1,9 @@
 package oml.testmod
 
-import org.ohmyloader.api.mixin.*
+import org.ohmyloader.api.hook.*
 
 /**
- * Mixin front-end validation on `Minecraft`: HEAD injection, cancellable short-circuiting,
+ * Mixin front-end validation on `Minecraft`: HEAD injection, cancelable short-circuiting,
  * **argument capture**, and the **CTOR_HEAD anchor**.
  *
  * The anchors are the shapes 26.3 actually has: `runTick` takes a `(Z)` render flag, which is what
@@ -12,7 +12,7 @@ import org.ohmyloader.api.mixin.*
  * return value, its handler shape is pinned by the target and has to be declared to match; `TAIL`
  * retains the Mixin semantics (**the last** return), "every return" uses `RETURN`.
  */
-@Mixin(target = "net.minecraft.client.Minecraft")
+@Hooked(target = "net.minecraft.client.Minecraft")
 class MinecraftMixin {
 
     private var runTickCalls = 0
@@ -29,7 +29,7 @@ class MinecraftMixin {
      * inside a constructor. Writing the method name as `<init>` matches every constructor overload.
      */
     @Inject(method = "<init>", at = At(At.CTOR_HEAD))
-    fun onMinecraftConstructed(ci: CallbackInfo) {
+    fun onMinecraftConstructed(ci: HookContext) {
         E2E.hit("mixin.ctor_head")
         if (!constructed) {
             constructed = true
@@ -37,8 +37,8 @@ class MinecraftMixin {
         }
     }
 
-    @Inject(method = "runTick", at = At(At.HEAD), cancellable = true)
-    fun onRunTick(ci: CallbackInfo) {
+    @Inject(method = "runTick", at = At(At.HEAD), cancelable = true)
+    fun onRunTick(ci: HookContext) {
         E2E.hit("mixin.run_tick.head")
         runTickCalls++
         if (runTickCalls == 1) {
@@ -53,7 +53,7 @@ class MinecraftMixin {
 
     /**
      * Argument capture (isomorphic with Mixin): `runTick(Z)V` passes "whether this is a render
-     * frame" in as a parameter; the handler declares a `Boolean` parameter **before** `CallbackInfo`
+     * frame" in as a parameter; the handler declares a `Boolean` parameter **before** `HookContext`
      * to receive it. `locals = CAPTURE_FAILHARD` must be written explicitly — local-capture cannot
      * be verified statically, so the author states the intent (`CAPTURE_FAILSOFT` just skips and
      * prints the reason); the slot is located by the engine's data-flow analysis at the injection
@@ -69,7 +69,7 @@ class MinecraftMixin {
         // no policy is set on purpose: a missing descriptor is a soft failure (same as Mixin), not a
         // startup error
     )
-    fun onRunTickWithRenderFlag(render: Boolean, ci: CallbackInfo) {
+    fun onRunTickWithRenderFlag(render: Boolean, ci: HookContext) {
         E2E.hit("mixin.run_tick.capture")
         renderFlagCalls++
         if (renderFlagCalls == 1) {
@@ -85,7 +85,7 @@ class MinecraftMixin {
      * at any match without a second injection point.
      */
     @Inject(method = "runTick", at = At(value = At.RETURN, ordinal = 0))
-    fun onRunTickFirstReturn(ci: CallbackInfo) {
+    fun onRunTickFirstReturn(ci: HookContext) {
         E2E.hit("mixin.run_tick.return_ordinal")
         firstReturnCalls++
         if (firstReturnCalls == 1) {

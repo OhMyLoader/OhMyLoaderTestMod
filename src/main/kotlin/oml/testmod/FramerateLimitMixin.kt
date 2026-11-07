@@ -1,6 +1,6 @@
 package oml.testmod
 
-import org.ohmyloader.api.mixin.*
+import org.ohmyloader.api.hook.*
 
 /**
  * The frame-rate-limit half of the Mixin front-end validation, split onto its own target class.
@@ -12,7 +12,7 @@ import org.ohmyloader.api.mixin.*
  * Every rule declares `require = 1`: mixin rules are optional by default, so without it a drifted
  * anchor would silently do one thing less — the exact failure this mod exists to catch.
  */
-@Mixin(target = "com.mojang.blaze3d.platform.FramerateLimitTracker")
+@Hooked(target = "com.mojang.blaze3d.platform.FramerateLimitTracker")
 class FramerateLimitMixin {
 
     private var frameLimitCalls = 0
@@ -26,7 +26,7 @@ class FramerateLimitMixin {
      * that means "the value the caller will use".
      */
     @Inject(method = "getFramerateLimit", desc = "()I", at = At(At.TAIL), require = 1)
-    fun onLimitFramerate(ci: CallbackInfo) {
+    fun onLimitFramerate(ci: HookContext) {
         E2E.hit("mixin.frame_limit.tail")
         frameLimitCalls++
         if (frameLimitCalls == 1) {
@@ -39,8 +39,8 @@ class FramerateLimitMixin {
      * return 60 directly, and only for the first 5 calls so the clamped value is proven to reach the
      * caller without permanently masking the original read path.
      */
-    @Inject(method = "getFramerateLimit", desc = "()I", at = At(At.HEAD), cancellable = true, require = 1)
-    fun capFramerateLimit(ci: CallbackInfoReturnable<Int>) {
+    @Inject(method = "getFramerateLimit", desc = "()I", at = At(At.HEAD), cancelable = true, require = 1)
+    fun capFramerateLimit(ci: HookValue<Int>) {
         E2E.hit("mixin.frame_limit.head")
         fpsCalls++
         if (fpsCalls <= 5) {

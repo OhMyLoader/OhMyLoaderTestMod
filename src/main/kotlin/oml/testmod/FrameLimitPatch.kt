@@ -1,7 +1,7 @@
 package oml.testmod
 
-import org.ohmyloader.api.mixin.CallbackInfo
-import org.ohmyloader.api.mixin.Unique
+import org.ohmyloader.api.hook.HookContext
+import org.ohmyloader.api.hook.Extra
 
 /**
  * A member merged into `Minecraft` by [TestRules]. This class is **never loaded** — the loader only
@@ -15,21 +15,21 @@ import org.ohmyloader.api.mixin.Unique
  */
 class FrameLimitPatch {
 
-    /** `@Unique`: merged into the target class as a **new** field (auto-renamed if it collides with
+    /** `@Extra`: merged into the target class as a **new** field (auto-renamed if it collides with
      * an existing member of the same name and descriptor). */
-    @Unique
+    @Extra
     private var reads = 0
 
     /**
      * The handler: on merge it is **name-preserved and promoted to public**, because the injection
      * point hardcodes this name.
      *
-     * An `INJECT`-form handler ends with a [CallbackInfo] handle — the receiver does not enter the
+     * An `INJECT`-form handler ends with a [HookContext] handle — the receiver does not enter the
      * parameter list (after the merge it is the target instance itself), so the parameter list holds
      * only the handle. It is not read here (only a notification, no short-circuit), but the shape
      * must match: the startup self-check verifies each shape and refuses to start on a mismatch.
      */
-    fun onFrameLimitRead(@Suppress("UNUSED_PARAMETER") ci: CallbackInfo) {
+    fun onFrameLimitRead(@Suppress("UNUSED_PARAMETER") ci: HookContext) {
         reads++
         // only "read its own field + call a static method": string assembly is done in another class
         // (see the class doc)

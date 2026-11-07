@@ -1,6 +1,6 @@
 package oml.testmod;
 
-import org.ohmyloader.api.mixin.*;
+import org.ohmyloader.api.hook.*;
 
 /**
  * Class-merging demo: this mixin's fields/methods are physically merged into
@@ -11,17 +11,17 @@ import org.ohmyloader.api.mixin.*;
  * {@link Shadow} — after merging, the code resides inside the target class and reads the private
  * {@code proxy} field without reflection; {@link Overwrite} — replaces an entire method body;
  * {@link Unique} — a static field whose initializer only becomes non-zero when the mixin's
- * {@code <clinit>} is spliced in. Java rather than Kotlin deliberately: an {@code @Shadow} field must
+ * {@code <clinit>} is spliced in. Java rather than Kotlin deliberately: an {@code @Borrowed} field must
  * be declared but never initialized, which Kotlin property syntax forbids without {@code lateinit}.</p>
  */
-@Mixin(target = "net.minecraft.client.Minecraft")
+@Merged(target = "net.minecraft.client.Minecraft")
 public class MinecraftMergeMixin {
 
     /**
      * A static field merged into the target class: its initial value of 7 lives in the mixin's
      * `<clinit>`.
      */
-    @Unique
+    @Extra
     private static int omlMergeCount = 7;
     /**
      * An <b>instance</b> field merged into the target class: its initial value of 1234 is written
@@ -33,22 +33,22 @@ public class MinecraftMergeMixin {
      * constructor merging: active ⇒ {@code run()} reads 1234; not active ⇒ it keeps the JVM default
      * of 0 (the field is still merged in, so there are no other symptoms).</p>
      */
-    @Unique
+    @Extra
     private final int omlCtorInit = 1234;
     /**
-     * A private field in the target class; {@code @Shadow} merely declares that it exists, and it
+     * A private field in the target class; {@code @Borrowed} merely declares that it exists, and it
      * is not merged in a second time.
      */
-    @Shadow
+    @Borrowed
     private String launchedVersion;
 
     /**
-     * A behavior-equivalent {@code @Overwrite} of a trivial, stable method (reads one field, returns
+     * A behavior-equivalent {@code @Replace} of a trivial, stable method (reads one field, returns
      * it). {@code getProxy()} cannot serve as the target: 26.3 added that exact public method to the
      * target class, which turns an overwrite into a collision — the merge fails loudly instead of
      * picking a winner.
      */
-    @Overwrite
+    @Replace
     public String getLaunchedVersion() {
         MergeProbe.hit(omlMergeCount);
         omlMergeCount = omlMergeCount + 1;
@@ -59,7 +59,7 @@ public class MinecraftMergeMixin {
      * An <b>instance</b> handler — merged into the target class along with the class, invoked directly
      * by the injection point, so {@code this} here is the <b>Minecraft instance</b> and
      * {@code this.proxy} reads <b>Minecraft's field</b>. Under the injection model instead, the handler
-     * stays on the mixin class, is invoked via reflection, and the {@code @Shadow} fields of a mixin
+     * stays on the mixin class, is invoked via reflection, and the {@code @Borrowed} fields of a mixin
      * instance are never initialized — that would read {@code null} here. This line is the evidence of
      * the difference.
      *
@@ -68,7 +68,7 @@ public class MinecraftMergeMixin {
      * (see that field's comment).</p>
      */
     @Inject(method = "run", at = @At(At.HEAD))
-    private void onRunReadsShadowField(CallbackInfo ci) {
+    private void onRunReadsShadowField(HookContext ci) {
         MergeProbe.hitShadow(this.launchedVersion);
         MergeProbe.hitCtorInit(this.omlCtorInit);
     }

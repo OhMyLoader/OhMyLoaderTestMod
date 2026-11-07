@@ -14,10 +14,10 @@ import java.util.concurrent.atomic.AtomicBoolean
  * Observation point for the class-merge demo, and the test mod's home for "measured on the real game"
  * evidence (the resource-pack probe below answers what the live `ResourceManager` actually serves).
  *
- * An `@Overwrite`d method body runs **inside the target class** (`net.minecraft.client.Minecraft`) and
+ * An `@Replace`d method body runs **inside the target class** (`net.minecraft.client.Minecraft`) and
  * calls here to report that the merged-in code really executed — the merge is transparent to callers,
  * so only a report emitted from inside gives E2E a definite acceptance point. [hit]'s argument is the
- * mixin's `@Unique` static field, whose initializer is spliced into the target class's `<clinit>`:
+ * mixin's `@Extra` static field, whose initializer is spliced into the target class's `<clinit>`:
  * it **must be 7**; a 0 means the `<clinit>` was not spliced.
  */
 object MergeProbe {
@@ -26,16 +26,16 @@ object MergeProbe {
 
     /**
      * Observation point: what the **instance** handler (which moved into the target class via the
-     * class merge) reads as `this.<@Shadow field>`.
+     * class merge) reads as `this.<@Borrowed field>`.
      *
      * The passed-in value is what `this.launchedVersion` evaluates to inside the handler body —
-     * before the merge it is the mixin's `@Shadow` field (always null); after the merge it points at
+     * before the merge it is the mixin's `@Borrowed` field (always null); after the merge it points at
      * the **target class's** field (the real value). So this single line is itself evidence that the
      * real Mixin `this` semantics are in effect.
      */
     @JvmStatic
     fun hitShadow(launchedVersion: String?) {
-        // A null/blank value would mean the handler read the mixin's own @Shadow field instead of the
+        // A null/blank value would mean the handler read the mixin's own @Borrowed field instead of the
         // target's, which is the failure this observation exists for.
         E2E.check("merge.shadow_this", !launchedVersion.isNullOrBlank(), "this.launchedVersion=$launchedVersion")
         if (shadowLogged.compareAndSet(false, true)) {
@@ -76,7 +76,7 @@ object MergeProbe {
      * Observation point: **constructor merging** folded the mixin's instance initializer into the
      * target class's constructor.
      *
-     * [value] is the current value of the mixin's `@Unique` instance field — its initial value is
+     * [value] is the current value of the mixin's `@Extra` instance field — its initial value is
      * written in the mixin's `<init>`, so only splicing that block into the target class's `<init>`
      * keeps it from being the JVM default 0.
      */
@@ -265,12 +265,12 @@ object MergeProbe {
         E2E.check(
             "merge.overwrite_static_field",
             mergedStaticField == 7,
-            "@Unique static field=$mergedStaticField (7 = <clinit> spliced)",
+            "@Extra static field=$mergedStaticField (7 = <clinit> spliced)",
         )
         if (logged.compareAndSet(false, true)) {
             println(
-                "[oml_testmod] class merge: @Overwrite method body executed, " +
-                    "@Unique static field (initial value from the spliced <clinit>) = $mergedStaticField",
+                "[oml_testmod] class merge: @Replace method body executed, " +
+                    "@Extra static field (initial value from the spliced <clinit>) = $mergedStaticField",
             )
         }
     }

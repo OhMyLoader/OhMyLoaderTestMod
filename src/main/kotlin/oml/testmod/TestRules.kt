@@ -59,7 +59,7 @@ object TestRules : RuleSetProvider {
             // the merge (owner is filled in from the target class automatically)
             method("getFramerateLimit", desc = "()I") {
                 atHead {
-                    mergedCall("onFrameLimitRead", "(Lorg/ohmyloader/api/mixin/CallbackInfo;)V")
+                    mergedCall("onFrameLimitRead", "(Lorg/ohmyloader/api/hook/HookContext;)V")
                 }
                 require(1)
             }
