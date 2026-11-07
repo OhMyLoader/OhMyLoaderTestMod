@@ -25,6 +25,7 @@ import net.minecraft.world.damagesource.DamageSource
 import net.minecraft.world.entity.Entity
 import net.minecraft.world.entity.EquipmentSlot
 import net.minecraft.world.entity.LivingEntity
+import net.minecraft.world.entity.Mob
 import net.minecraft.world.entity.player.Inventory
 import net.minecraft.world.item.ItemStack
 import net.minecraft.world.level.ChunkPos
@@ -618,6 +619,7 @@ object WorldProbe {
         step("api.server_game_rules") { probeGameRules() }
         step("api.world_particles_arguments") { probeArgumentParticles() }
         step("api.entity_equipment") { probeEntityEquipment() }
+        step("api.entity_goal") { probeEntityGoal() }
         step("datapack.reload") { probeDatapackReload() }
         val player = OMLGame.server?.onlinePlayers?.firstOrNull() ?: return@guard
         step("api.player_handle") { probePlayerHandle(player) }
@@ -742,6 +744,51 @@ object WorldProbe {
 
     private var serverHandleProbed = false
     private var tickSnapshot = -1
+
+    private var goalRequested = false
+    private var goalCow: LivingEntity? = null
+    private var goalStarted = false
+    private var goalTicked = 0
+
+    /**
+     * Spawns a cow in the declared probe dimension (on the bedrock floor the teleport probe already
+     * uses) and gives it a behavior that can always run: the game must start it and tick it — an
+     * added goal that never runs means the selector never saw the bridge, which is exactly the kind
+     * of silence this API has to answer for.
+     */
+    private fun probeEntityGoal(): Boolean {
+        val server = OMLGame.server ?: return false
+        if (!goalRequested) {
+            if (!chunkReady(server, MOD_DIMENSION, TELEPORT_POSITION)) return false
+            val world = server.levelById(MOD_DIMENSION) ?: return false
+            val cow = world.spawnLivingEntity(COW, TELEPORT_X, TELEPORT_Y, TELEPORT_Z) ?: return false
+            (cow as? Mob)?.addGoal(0, object : OMLGoal {
+                override fun canUse() = true
+                override fun start() { goalStarted = true }
+                override fun tick() { goalTicked++ }
+            }) ?: run {
+                E2E.check("api.entity_goal", false, "the spawned ${cow.typeId} is not a Mob")
+                return true
+            }
+            goalCow = cow
+            goalRequested = true
+            return false
+        }
+        val cow = goalCow ?: return false
+        if (cow.isRemoved) {
+            E2E.check("api.entity_goal", false, "the cow left the world before its behavior ran")
+            return true
+        }
+        if (goalTicked == 0) return false
+        E2E.check(
+            "api.entity_goal",
+            goalStarted && goalTicked > 0,
+            "started=$goalStarted ticks=$goalTicked",
+        )
+        cow.discard()
+        return true
+    }
+
 
     /** Applied server datapack reloads, and the server the last one landed on. */
     @Volatile

@@ -194,7 +194,7 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider, OM
                 "content.custom_clock", "content.custom_dimension", "api.chunk_lifecycle",
                 "api.permission_nodes", "api.block_entity_read", "api.block_data_addressing", "api.dimension_teleport",
                 "api.world_spawn_anchor",
-                "api.server_game_rules", "api.world_particles_arguments", "api.entity_equipment",
+                "api.server_game_rules", "api.world_particles_arguments", "api.entity_equipment", "api.entity_goal",
                 "api.server_difficulty", "content.light_level", "datapack.reload",
             )
         } else if (multiplayer) {
@@ -276,6 +276,7 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider, OM
                     "api.server_game_rules",
                     "api.world_particles_arguments",
                     "api.entity_equipment",
+                    "api.entity_goal",
                     "datapack.reload",
                     "api.world_clock",
                     "api.clock_markers",
