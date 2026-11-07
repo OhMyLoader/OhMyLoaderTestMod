@@ -8,6 +8,8 @@ import net.minecraft.core.BlockPos
 import net.minecraft.core.Direction
 import net.minecraft.core.registries.BuiltInRegistries
 import net.minecraft.core.registries.Registries
+import net.minecraft.resources.Identifier
+import net.minecraft.resources.ResourceKey
 import net.minecraft.server.MinecraftServer
 import net.minecraft.server.level.ServerLevel
 import net.minecraft.server.level.ServerPlayer
@@ -478,6 +480,12 @@ object WorldProbe {
                     "${event.server.onlinePlayers.size} player(s)",
             )
         }
+        // The datapack reload probe counts applied reloads and keeps the server each landed on, so the
+        // step below can assert the event names the live server.
+        Events.DATAPACKS_RELOADED.register { event ->
+            datapackReloads += 1
+            reloadServer = event.server
+        }
         Events.PLAYER_JOINED.register { event ->
             val player = event.player
             E2E.check(
@@ -610,6 +618,7 @@ object WorldProbe {
         step("api.server_game_rules") { probeGameRules() }
         step("api.world_particles_arguments") { probeArgumentParticles() }
         step("api.entity_equipment") { probeEntityEquipment() }
+        step("datapack.reload") { probeDatapackReload() }
         val player = OMLGame.server?.onlinePlayers?.firstOrNull() ?: return@guard
         step("api.player_handle") { probePlayerHandle(player) }
         step("api.player_inventory") { probeInventory(player) }
@@ -733,6 +742,40 @@ object WorldProbe {
 
     private var serverHandleProbed = false
     private var tickSnapshot = -1
+
+    /** Applied server datapack reloads, and the server the last one landed on. */
+    @Volatile
+    private var datapackReloads = 0
+
+    @Volatile
+    private var reloadServer: MinecraftServer? = null
+
+    private var reloadRequested = false
+
+    /**
+     * Dispatches vanilla `/reload` from the server thread once — the game blocks the caller until
+     * the reload has been applied — then asserts the event fired on the live server with the
+     * techmod's smelting recipes still in the rebuilt recipe manager: a reload that dropped the
+     * mounted content packs would fire the event while silently serving vanilla-only data.
+     */
+    private fun probeDatapackReload(): Boolean {
+        val server = OMLGame.server ?: return false
+        if (!reloadRequested) {
+            reloadRequested = true
+            server.commands.performPrefixedCommand(server.createCommandSourceStack(), "reload")
+            return false
+        }
+        fun recipeLoaded(id: String): Boolean = server.recipeManager.byKey(
+            ResourceKey.create(Registries.RECIPE, Identifier.fromNamespaceAndPath("techmod", id)),
+        ).isPresent
+        val recipes = recipeLoaded("techmod_raw_copper") && recipeLoaded("techmod_raw_tin")
+        E2E.check(
+            "datapack.reload",
+            datapackReloads > 0 && reloadServer === server && recipes,
+            "reloads=$datapackReloads serverMatch=${reloadServer === server} recipesSurvived=$recipes",
+        )
+        return true
+    }
 
     private fun probeServerHandle() {
         if (serverHandleProbed) return

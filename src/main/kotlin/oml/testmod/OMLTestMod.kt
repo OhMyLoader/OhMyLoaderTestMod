@@ -195,7 +195,7 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider, OM
                 "api.permission_nodes", "api.block_entity_read", "api.block_data_addressing", "api.dimension_teleport",
                 "api.world_spawn_anchor",
                 "api.server_game_rules", "api.world_particles_arguments", "api.entity_equipment",
-                "api.server_difficulty", "content.light_level",
+                "api.server_difficulty", "content.light_level", "datapack.reload",
             )
         } else if (multiplayer) {
             // A remote client has no integrated server and runs none of the world probes; the
@@ -276,6 +276,7 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider, OM
                     "api.server_game_rules",
                     "api.world_particles_arguments",
                     "api.entity_equipment",
+                    "datapack.reload",
                     "api.world_clock",
                     "api.clock_markers",
                     "api.clock_rate_and_pause",
