@@ -4,7 +4,9 @@ import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.floor
 
+import net.minecraft.client.gui.screens.Screen
 import net.minecraft.core.BlockPos
+import net.minecraft.network.chat.Component
 import net.minecraft.core.Direction
 import net.minecraft.core.registries.BuiltInRegistries
 import net.minecraft.core.registries.Registries
@@ -587,6 +589,7 @@ object WorldProbe {
         head("api.client_handle") { probeClientHandle() }
         head("scheduler.client_task") { tickScheduler(clientRun) }
         step("api.world_block_read") { probeClientWorldRead() }
+        step("gui.open_screen") { probeOpenScreen() }
     }
 
     /** Server-side pass, dedicated or integrated. */
@@ -744,6 +747,52 @@ object WorldProbe {
 
     private var serverHandleProbed = false
     private var tickSnapshot = -1
+
+    /** The screen the open-screen probe shows, and whether the game's open hook reported it. */
+    class ProbeScreen : Screen(Component.literal("oml-e2e probe"))
+
+    private var probeScreenPhase = 0
+    private var probeScreenObserved = false
+
+    /**
+     * Opens the probe's own screen through the client API, then requires the game to show it with
+     * the open hook having reported, then closes it and requires the world back — verified in the
+     * same tick as the close, because a completed expectation is what releases the run into its
+     * graceful quit, and the save overlay would race a next-tick re-read. The screen swap is
+     * client-authoritative — this exercises exactly the path a config or info UI takes.
+     */
+    private fun probeOpenScreen(): Boolean {
+        val client = OMLGame.client ?: return false
+        // In-world only: the close lands back on the world, and before the join the game's own
+        // screens (title, loading) are not ours to displace.
+        if (client.level == null) return false
+        when (probeScreenPhase) {
+            0 -> {
+                probeScreenPhase = 1
+                client.openScreen(ProbeScreen())
+            }
+            else -> {
+                val shown = client.currentScreen is ProbeScreen
+                if (!shown) return false
+                val observed = probeScreenObserved
+                client.closeScreen()
+                val closed = client.currentScreen == null
+                E2E.check(
+                    "gui.open_screen",
+                    observed && closed,
+                    "shown=$shown guiOpenEvent=$observed closed=$closed",
+                )
+                probeScreenPhase = 3
+            }
+        }
+        return probeScreenPhase == 3
+    }
+
+    /** Fed by the mod's GUI_OPEN handler: the probe screen went through the game's own open path. */
+    fun observeProbeScreen(screen: Screen?) {
+        if (screen is ProbeScreen) probeScreenObserved = true
+    }
+
 
     private var goalRequested = false
     private var goalCow: LivingEntity? = null

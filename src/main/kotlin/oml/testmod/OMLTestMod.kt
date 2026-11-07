@@ -246,6 +246,7 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider, OM
                     "network.server_received",
                     "network.round_trip",
                     "hud.rendered",
+                    "gui.open_screen",
                     "event.server_started",
                     "event.player_joined",
                     "api.server_handle",
@@ -373,6 +374,7 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider, OM
 
         Events.GUI_OPEN.register { event ->
             E2E.hit("event.gui_open")
+            WorldProbe.observeProbeScreen(event.screen)
             guiEvents++
             if (guiEvents <= 3) {
                 println("[oml_testmod] GuiOpenEvent (first 3): screen=${event.screen?.javaClass?.name} canceled=${event.canceled}")
