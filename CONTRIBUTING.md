@@ -15,7 +15,7 @@ release.
 ## Prerequisites
 
 - JDK 27. CI uses the Zulu distribution.
-- The Gradle wrapper in this repository (Gradle 9.8.2).
+- The Gradle wrapper in this repository (Gradle 9.9.0).
 - Zig 0.17.0 when publishing the loader from a sibling checkout.
 - A sibling `OhMyLoader` and `OhMyLoaderGradle` checkout.
 - Linux with Xvfb, Mesa, and OpenAL for the CI-shaped E2E gates. A desktop display is enough for
