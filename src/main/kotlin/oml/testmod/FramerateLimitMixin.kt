@@ -25,7 +25,7 @@ class FramerateLimitMixin {
      * `TAIL` (last return) and `RETURN` (every return) are not interchangeable here. `TAIL` is the one
      * that means "the value the caller will use".
      */
-    @Inject(method = "getFramerateLimit", desc = "()I", at = At(At.TAIL), require = 1)
+    @Inject(method = "getFramerateLimit", desc = "()I", at = [At(At.TAIL)], require = 1)
     fun onLimitFramerate(ci: HookContext) {
         E2E.hit("mixin.frame_limit.tail")
         frameLimitCalls++
@@ -39,7 +39,7 @@ class FramerateLimitMixin {
      * return 60 directly, and only for the first 5 calls so the clamped value is proven to reach the
      * caller without permanently masking the original read path.
      */
-    @Inject(method = "getFramerateLimit", desc = "()I", at = At(At.HEAD), cancelable = true, require = 1)
+    @Inject(method = "getFramerateLimit", desc = "()I", at = [At(At.HEAD)], cancelable = true, require = 1)
     fun capFramerateLimit(ci: HookValue<Int>) {
         E2E.hit("mixin.frame_limit.head")
         fpsCalls++
@@ -76,7 +76,7 @@ class FramerateLimitMixin {
     @ModifyExpressionValue(
         method = "getFramerateLimit",
         desc = "()I",
-        at = At(At.CONSTANT, args = ["intValue=60"]),
+        at = [At(At.CONSTANT, args = ["intValue=60"])],
         require = 1,
     )
     fun onFramerateLimitExpressionValue(value: Int): Int {

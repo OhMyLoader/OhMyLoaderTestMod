@@ -67,7 +67,7 @@ public class MinecraftMergeMixin {
      * point). Also reports {@code omlCtorInit} once — non-zero only when constructor merging is active
      * (see that field's comment).</p>
      */
-    @Inject(method = "run", at = @At(At.HEAD))
+    @Inject(method = "run", at = {@At(At.HEAD)})
     private void onRunReadsShadowField(HookContext ci) {
         MergeProbe.hitShadow(this.launchedVersion);
         MergeProbe.hitCtorInit(this.omlCtorInit);

@@ -28,7 +28,7 @@ class MinecraftMixin {
      * handler touching `this` would be illegal bytecode. `CTOR_HEAD` is the only safe entry anchor
      * inside a constructor. Writing the method name as `<init>` matches every constructor overload.
      */
-    @Inject(method = "<init>", at = At(At.CTOR_HEAD))
+    @Inject(method = "<init>", at = [At(At.CTOR_HEAD)])
     fun onMinecraftConstructed(ci: HookContext) {
         E2E.hit("mixin.ctor_head")
         if (!constructed) {
@@ -37,7 +37,7 @@ class MinecraftMixin {
         }
     }
 
-    @Inject(method = "runTick", at = At(At.HEAD), cancelable = true)
+    @Inject(method = "runTick", at = [At(At.HEAD)], cancelable = true)
     fun onRunTick(ci: HookContext) {
         E2E.hit("mixin.run_tick.head")
         runTickCalls++
@@ -64,7 +64,7 @@ class MinecraftMixin {
     @Inject(
         method = "runTick",
         desc = "(Z)V",
-        at = At(At.HEAD),
+        at = [At(At.HEAD)],
         locals = LocalCapture.CAPTURE_FAILHARD,
         // no policy is set on purpose: a missing descriptor is a soft failure (same as Mixin), not a
         // startup error
@@ -84,7 +84,7 @@ class MinecraftMixin {
      * surface: an ordinal is resolved after the other filters, so the same anchor form can be aimed
      * at any match without a second injection point.
      */
-    @Inject(method = "runTick", at = At(value = At.RETURN, ordinal = 0))
+    @Inject(method = "runTick", at = [At(value = At.RETURN, ordinal = 0)])
     fun onRunTickFirstReturn(ci: HookContext) {
         E2E.hit("mixin.run_tick.return_ordinal")
         firstReturnCalls++
