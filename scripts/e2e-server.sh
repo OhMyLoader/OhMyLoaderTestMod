@@ -25,6 +25,7 @@ E2E_ARGS=(-Poml.gameVersion="$GAME_VERSION" -Poml.e2e.ticks="$TICKS" -Poml.e2e.t
 [ -n "${OML_E2E_GRACE_SECONDS:-}" ] && E2E_ARGS+=(-Poml.e2e.graceSeconds="$OML_E2E_GRACE_SECONDS")
 [ -n "${OML_E2E_EXPECT_EXTRA:-}" ] && E2E_ARGS+=(-Poml.e2e.expectExtra="$OML_E2E_EXPECT_EXTRA")
 [ -n "${OML_LOG_FILE:-}" ] && E2E_ARGS+=(-Poml.log.file="$OML_LOG_FILE")
+[ -n "${OML_E2E_DIAGNOSTICS:-}" ] && E2E_ARGS+=(-Poml.diagnostics="$OML_E2E_DIAGNOSTICS")
 [ -n "${OML_E2E_OML_VERSION:-}" ] && E2E_ARGS+=(-Poml_version="$OML_E2E_OML_VERSION")
 mkdir -p "$(dirname "$LOG")"
 

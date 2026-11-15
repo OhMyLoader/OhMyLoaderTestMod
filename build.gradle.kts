@@ -68,6 +68,10 @@ providers.gradleProperty("oml.e2e.ticks").orNull?.let { ticks ->
 // the log as an artifact does not have to hope the launcher kept stdout anywhere.
 providers.gradleProperty("oml.log.file").orNull?.let { oml.extraJvmArgs.add("-Doml.log.file=$it") }
 
+// The loader's own phase diagnostics (see Diagnostics): startup scans, rule compilation,
+// class-load phases. `-Poml.diagnostics=1` turns them on for a run.
+providers.gradleProperty("oml.diagnostics").orNull?.let { oml.diagnostics.set(it) }
+
 idea {
     project {
         settings {
