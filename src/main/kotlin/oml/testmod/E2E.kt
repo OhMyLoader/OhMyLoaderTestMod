@@ -43,8 +43,14 @@ object E2E {
     /**
      * `oml.e2e=1` — treat this run as an E2E run, so the verdict is enforced through the exit code.
      * Unset, every entry point here stays inert and the mod behaves like a normal one.
+     *
+     * The auto-reboot gate sets `oml.reboot.afterTicks` for the first session only; that session is
+     * the reboot trigger, not the run under test. Keeping its driver inert prevents expectations and
+     * a shutdown-hook verdict from straddling the session boundary (the supervisor clears the
+     * property before the next session, which then runs the real suite).
      */
-    private val enabled = System.getProperty("oml.e2e") != null
+    private val enabled = System.getProperty("oml.e2e") != null &&
+        System.getProperty("oml.reboot.afterTicks") == null
     private val lock = Any()
     private val expected = LinkedHashSet<String>()
     private val observed = LinkedHashMap<String, Pair<Boolean, String>>()

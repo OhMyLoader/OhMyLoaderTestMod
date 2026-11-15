@@ -43,8 +43,10 @@ oml {
     // fall back to their vanilla implementations.
     extraJvmArgs.addAll(
         listOf(
-            // Workaround for an intermittent 0xC0000005 right after window creation on the Zulu 27 line.
-            "-XX:TieredStopAtLevel=1",
+            // Zulu 27's C1 intermittently faults after window creation and while a second in-process
+            // session compiles the same game classes. C2-only avoids both shapes; the E2E gate runs
+            // this line until the VM fix is available.
+            "-XX:-TieredCompilation",
         )
     )
 }

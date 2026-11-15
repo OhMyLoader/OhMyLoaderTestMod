@@ -222,7 +222,10 @@ object WorldProbe {
      * Where the chunk probe works: a position inside one chunk of the mod's own dimension, which no player
      * ever visits. The flat generator puts one bedrock layer at y=0, so the column above it is air to build in.
      */
-    private val CHUNK_PROBE_POSITION = BlockPos(8, 64, 8)
+    // Far outside the client's spawn view distance: the lifecycle probe must observe a real
+    // unloaded->ticking transition, and a reused save's spawn-area chunks are already loaded by the
+    // time the probe runs (the server gate's own ticket at the old origin used to mask it).
+    private val CHUNK_PROBE_POSITION = BlockPos(8 + 16 * 64, 64, 8 + 16 * 64)
     private const val CHUNK_PROBE_BLOCK = "minecraft:stone"
     private const val CHUNK_TICK_WAIT_LIMIT = 60
     // The integrated server processes released chunks through ChunkMap's unload queue after its
@@ -800,17 +803,21 @@ object WorldProbe {
     private var goalTicked = 0
 
     /**
-     * Spawns a cow in the declared probe dimension (on the bedrock floor the teleport probe already
-     * uses) and gives it a behavior that can always run: the game must start it and tick it — an
-     * added goal that never runs means the selector never saw the bridge, which is exactly the kind
-     * of silence this API has to answer for.
+     * Spawns a cow next to the player and gives it a behavior that can always run: the game must
+     * start it and tick it — an added goal that never runs means the selector never saw the bridge,
+     * which is exactly the kind of silence this API has to answer for.
+     *
+     * The declared probe dimensions are force-loaded for block ticking but have no player, so their
+     * entities never enter the entity-tick set: a goal there never runs and the cow is eventually
+     * dropped. The player's own chunk is entity-ticking by construction.
      */
     private fun probeEntityGoal(): Boolean {
         val server = OMLGame.server ?: return false
         if (!goalRequested) {
-            if (!chunkReady(server, MOD_DIMENSION, TELEPORT_POSITION)) return false
-            val world = server.levelById(MOD_DIMENSION) ?: return false
-            val cow = world.spawnLivingEntity(COW, TELEPORT_X, TELEPORT_Y, TELEPORT_Z) ?: return false
+            val player = server.onlinePlayers.firstOrNull() ?: return false
+            val spot = player.blockPosition().offset(2, 0, 0)
+            val cow = server.overworld().spawnLivingEntity(COW, spot.x + 0.5, spot.y.toDouble(), spot.z + 0.5)
+                ?: return false
             (cow as? Mob)?.addGoal(0, object : OMLGoal {
                 override fun canUse() = true
                 override fun start() { goalStarted = true }
@@ -825,7 +832,11 @@ object WorldProbe {
         }
         val cow = goalCow ?: return false
         if (cow.isRemoved) {
-            E2E.check("api.entity_goal", false, "the cow left the world before its behavior ran")
+            E2E.check(
+                "api.entity_goal", false,
+                "the cow left the world before its behavior ran " +
+                    "(pos=${cow.position()} alive=${cow.isAlive} health=${cow.health})",
+            )
             return true
         }
         if (goalTicked == 0) return false
@@ -1861,6 +1872,9 @@ object WorldProbe {
         if (chunkPhase == 0) {
             chunkTickingSeen = false
             chunkUnloadedSeen = false
+            // A reused save (the client gate copies the server gate's world) can still carry this
+            // position's ticket from the server run. Clear it so `added` answers for THIS ticket.
+            level.releaseForceLoadedChunk(CHUNK_PROBE_POSITION)
             val added = level.forceLoadChunk(CHUNK_PROBE_POSITION)
             val read = level.isForceLoaded(CHUNK_PROBE_POSITION)
             val listed = target in level.forceLoadedChunkPositions
