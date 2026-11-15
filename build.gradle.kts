@@ -41,14 +41,6 @@ oml {
     apiVersion.set(omlVersion)
     // oml-native resolves from Maven; when absent the plugin logs a skip and OML's zstd codecs
     // fall back to their vanilla implementations.
-    extraJvmArgs.addAll(
-        listOf(
-            // Zulu 27's C1 intermittently faults after window creation and while a second in-process
-            // session compiles the same game classes. C2-only avoids both shapes; the E2E gate runs
-            // this line until the VM fix is available.
-            "-XX:-TieredCompilation",
-        )
-    )
 }
 
 // The multiplayer gate needs a stable offline profile name; the server runs online-mode=false and
