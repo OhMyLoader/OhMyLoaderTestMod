@@ -16,7 +16,9 @@
 #      OML_E2E_QUICKPLAY (default oml-e2e-world), OML_E2E_GRACE_SECONDS, OML_E2E_WATCHDOG,
 #      OML_E2E_EXPECT_EXTRA (gate self-test), OML_E2E_NO_JOIN (title-screen self-test), OML_LOG_FILE,
 #      OML_GAME_VERSION (26.3), OML_E2E_OML_VERSION (overrides the SNAPSHOT coordinate for a release gate),
-#      OML_E2E_CONTEXT / OML_E2E_RESULT (evidence paths, default build/e2e-{context,result}-client.json).
+#      OML_E2E_CONTEXT / OML_E2E_RESULT (evidence paths, default build/e2e-{context,result}-client.json),
+#      OML_RUNTIME_JAVA (the JVM the *game* runs on; default: a local 27.0.2 build if present, else the
+#      build's toolchain), OML_TEST_JDK_HOME (portable way to name that JDK).
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit
 
@@ -37,6 +39,8 @@ export OML_E2E_QUICKPLAY="$WORLD"
 mkdir -p "$(dirname "$LOG")"
 
 . "$(dirname "$0")/e2e-evidence.sh"
+# Before the context is written: which JVM the game runs on is part of the run's evidence.
+e2e_resolve_runtime_java "e2e-client"
 e2e_evidence_start client "$LOG"
 trap 'rc=$?; e2e_evidence_finish "$rc"' EXIT
 
@@ -83,6 +87,9 @@ echo 'pauseOnLostFocus:false' >> "$OPTIONS"
 
 E2E_ARGS=(-Poml.gameVersion="$GAME_VERSION" -Poml.e2e.ticks="$TICKS" -Poml.e2e.timeoutSeconds="$WATCHDOG")
 [ -n "${OML_E2E_OML_VERSION:-}" ] && E2E_ARGS+=(-Poml_version="$OML_E2E_OML_VERSION")
+if [ -n "${OML_RUNTIME_JAVA:-}" ] && [ -x "$OML_RUNTIME_JAVA" ]; then
+  E2E_ARGS+=(-Poml.runtimeJava="$OML_RUNTIME_JAVA")
+fi
 # A no-join self-test boots to the title screen: quickPlay is what would drive the join, and the
 # world-dependent probes are all null-guarded enough to sit out a session that never has one.
 if [ -z "$NO_JOIN" ]; then

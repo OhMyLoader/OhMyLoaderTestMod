@@ -182,6 +182,7 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider, OM
         // expectations are declared per side because over half of them can only be observed on one.
         E2E.install()
         WorldProbe.register()
+        RebootProbe.declare()
         E2E.expect("content.declared", "event.tick")
         if (isServerSide() && multiplayer) {
             // The remote client, not an integrated server, owns the play path: assert the join
@@ -203,7 +204,9 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider, OM
                 "content.custom_clock", "content.custom_dimension", "api.chunk_lifecycle",
                 "api.permission_nodes", "api.block_entity_read", "api.block_data_addressing", "api.dimension_teleport",
                 "api.world_spawn_anchor",
-                "api.server_game_rules", "api.world_particles_arguments", "api.entity_equipment", "api.entity_goal",
+                // api.entity_goal is not here: it spawns a cow next to an online player, and a dedicated
+                // server's console never has one.
+                "api.server_game_rules", "api.world_particles_arguments", "api.entity_equipment",
                 "api.server_difficulty", "content.light_level", "datapack.reload",
             )
         } else if (multiplayer) {
@@ -337,6 +340,7 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider, OM
             // The multiplayer run is a connection test; the singleplayer pass owns the world probes.
             if (E2E.isEnabled && !multiplayer) {
                 WorldProbe.tickClient()
+                RebootProbe.tickClient()
                 probeClientFeatures()
             }
             if (ticks % 200 == 0) {

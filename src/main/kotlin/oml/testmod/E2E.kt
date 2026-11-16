@@ -163,7 +163,7 @@ object E2E {
             "$PREFIX READY ticks=$ticksSeen side=$side" +
                 if (missing.isEmpty()) "" else " incomplete=${missing.size} (${missing.joinToString(",")})",
         )
-        if (side == "client") quitClient()
+        if (side == "client") quitClient() else quitServer()
     }
 
     /** `oml.e2e.multiplayer=1`: this run joins the dedicated server the harness started alongside it. */
@@ -243,8 +243,7 @@ object E2E {
     }
 
     /**
-     * Client-side self-quit: nothing outside the process can press the close button, while the
-     * dedicated server is stopped by the harness with `/stop` once it has seen [READY].
+     * Client-side self-quit: nothing outside the process can press the close button.
      *
      * If `stop()` ever fails the fallback prints the verdict and halts itself: `halt` skips shutdown
      * hooks, which is exactly why this path cannot leave the verdict to the hook.
@@ -261,8 +260,26 @@ object E2E {
         }
     }
 
-    /** Test hook: forget every declaration and observation, so each case starts from an empty verdict. */
-    internal fun resetForTests() {
+    /**
+     * Server-side counterpart of [quitClient]. The harness used to send `/stop` on the console once it
+     * saw [READY], but that needs stdin forwarded through Gradle, and on Windows the forward fails
+     * ("invalid handle") — the run then sits in its tick loop until the stop timeout. Asking the server
+     * to stop from inside its own tick is exactly what `/stop` does: `halt(false)` clears the run flag
+     * and the server loop saves, unloads and exits normally.
+     */
+    private fun quitServer() {
+        val graceful = runCatching {
+            val server = OMLGame.server ?: error("no server instance in this process")
+            server.halt(false)
+        }
+        graceful.onFailure {
+            println("$PREFIX graceful stop unavailable (${it.javaClass.name}: ${it.message}); halting after the verdict")
+            it.printStackTrace()
+            reportAndHalt()
+        }
+    }
+
+    /** Test hook: forget every declaration and observation, so each case starts from an empty verdict. */    internal fun resetForTests() {
         synchronized(lock) {
             expected.clear()
             observed.clear()

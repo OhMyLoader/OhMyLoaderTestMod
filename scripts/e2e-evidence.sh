@@ -13,6 +13,47 @@ e2e_evidence_json() {
   printf '%s' "${1:-}" | tr '\r\n' '  ' | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'
 }
 
+# The version banner of one JVM. `-version` writes the JAVA_TOOL_OPTIONS notice first and every gate
+# run sets it, so the notice has to be filtered or the field records flags instead of a JVM.
+e2e_java_version() {
+  "$1" -version 2>&1 | grep -v '^Picked up' | head -1
+}
+
+# Which JVM the *game* runs on, as opposed to the one the build runs on (see the gate scripts).
+#
+# Order: OML_RUNTIME_JAVA (explicit, always wins) -> the fixed local 27.0.2 build, when this machine
+# has one -> the build's own toolchain JVM. The local candidate is here for a concrete reason: Zulu
+# 27.0.1 carries a Windows stack-probe defect (JDK-8394484) whose only symptom in a long client run
+# is 0xC0000005 with no hs_err — indistinguishable from a native crash, which is what made a JVM bug
+# look like a game bug. A CI checkout has no such directory, so it falls through to the toolchain and
+# this branch costs one failed `-x`. OML_TEST_JDK_HOME covers other machines portably.
+e2e_resolve_runtime_java() {
+  local who="$1" candidate
+  if [ -n "${OML_RUNTIME_JAVA:-}" ]; then
+    if [ -x "$OML_RUNTIME_JAVA" ]; then
+      echo "$who: game JVM -> $OML_RUNTIME_JAVA ($(e2e_java_version "$OML_RUNTIME_JAVA"))"
+      return 0
+    fi
+    echo "$who: OML_RUNTIME_JAVA=$OML_RUNTIME_JAVA is not executable — falling back to the toolchain JVM"
+    unset OML_RUNTIME_JAVA
+    return 0
+  fi
+  for candidate in \
+    "${OML_TEST_JDK_HOME:+$OML_TEST_JDK_HOME/bin/java}" \
+    "${OML_TEST_JDK_HOME:+$OML_TEST_JDK_HOME/bin/java.exe}" \
+    "C:/Workspaces/jdk-test/jdk27-pr33729/bin/java.exe"; do
+    [ -n "$candidate" ] || continue
+    if [ -x "$candidate" ]; then
+      OML_RUNTIME_JAVA="$candidate"
+      export OML_RUNTIME_JAVA
+      echo "$who: game JVM -> $candidate ($(e2e_java_version "$candidate"))"
+      return 0
+    fi
+  done
+  unset OML_RUNTIME_JAVA
+  echo "$who: no local test JDK — the game runs on the build's toolchain JVM"
+}
+
 e2e_evidence_sha() {
   local file="$1"
   if command -v sha256sum >/dev/null 2>&1; then
@@ -135,9 +176,17 @@ e2e_evidence_start() {
     [ -e "$file" ] && e2e_evidence_add_artifact "$file"
   done
 
-  local uname_line java_line glx_line mesa_version xvfb_version cpus
+  local uname_line java_line glx_line mesa_version xvfb_version cpus game_java_line
   uname_line="$(uname -a 2>/dev/null || printf 'unknown')"
-  java_line="$(java -version 2>&1 | head -1 || printf 'unknown')"
+  java_line="$(e2e_java_version java || printf 'unknown')"
+  # The JVM the game is launched on. It can differ from `java` above: the build stays on the
+  # toolchain while the run uses another JDK (see OML_RUNTIME_JAVA in e2e-client.sh), and a crash
+  # investigation is worthless if the context does not say which one it was.
+  if [ -n "${OML_RUNTIME_JAVA:-}" ] && [ -x "${OML_RUNTIME_JAVA}" ]; then
+    game_java_line="$(e2e_java_version "${OML_RUNTIME_JAVA}")"
+  else
+    game_java_line="toolchain"
+  fi
   glx_line="$(glxinfo -B 2>/dev/null | head -8 || true)"
   mesa_version="$(dpkg-query -W -f='${Version}' mesa-vulkan-drivers 2>/dev/null || printf 'unknown')"
   xvfb_version="$(dpkg-query -W -f='${Version}' xvfb 2>/dev/null || printf 'unknown')"
@@ -189,6 +238,7 @@ $(cat "$artifacts_tmp")
   "environment": {
     "uname": "$(e2e_evidence_json "$uname_line")",
     "java": "$(e2e_evidence_json "$java_line")",
+    "game_java": "$(e2e_evidence_json "$game_java_line")",
     "cpus": "$(e2e_evidence_json "$cpus")",
     "glxinfo": "$(e2e_evidence_json "$glx_line")",
     "mesa_vulkan_drivers": "$(e2e_evidence_json "$mesa_version")",

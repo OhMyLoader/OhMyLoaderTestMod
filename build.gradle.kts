@@ -81,6 +81,22 @@ idea {
     }
 }
 
+// -Poml.runtimeJava=<path-to-java[.exe]> runs the *game* on that JVM while the build itself stays on
+// the toolchain. It exists because a bug can live in the JVM rather than in the game: Zulu 27.0.1 has
+// a Windows stack-probe defect (JDK-8394484) whose only symptom in a long-running client is
+// 0xC0000005 with no hs_err — indistinguishable from a native crash in SDL/OpenGL. Swapping only the
+// launched process is what makes that one variable instead of a toolchain rebuild.
+// `javaLauncher` is cleared as well: it is set from the toolchain convention and would otherwise win
+// over `executable`.
+providers.gradleProperty("oml.runtimeJava").orNull?.let { runtimeJava ->
+    tasks.withType<JavaExec>().configureEach {
+        // `executable =` reads as an assignment to a read-only property in the Kotlin DSL here.
+        setExecutable(runtimeJava)
+        javaLauncher.set(null)
+        doFirst { logger.lifecycle("[oml] game JVM: $runtimeJava") }
+    }
+}
+
 // -Poml.quickPlay=<world> / -Poml.quickPlayServer=<host:port> launch straight into a world or server.
 tasks.named<JavaExec>("runClient") {
     providers.gradleProperty("oml.quickPlay").orNull?.let { world ->
