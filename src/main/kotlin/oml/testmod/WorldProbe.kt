@@ -256,6 +256,14 @@ object WorldProbe {
     private const val CLOCK_SYNC_JUMP = 5000L
     private const val CLOCK_SYNC_WAIT_TICKS = 60
 
+    /**
+     * How long the sync probe waits for the client's own copy to come alive before writing. A client
+     * that is still joining has a clock standing at 0: no packet has told it the time yet, and writing
+     * the jump before that hands the value to a level the client has not built, which then reads back
+     * as "the sync never arrived".
+     */
+    private const val CLOCK_SYNC_READY_TICKS = 200
+
     /** A rule that exists in every vanilla dimension, so the flip-and-restore has a guaranteed subject. */
     private const val KEEP_INVENTORY_RULE = "minecraft:keep_inventory"
 
@@ -359,6 +367,16 @@ object WorldProbe {
 
     /** Ticks the control damage has been refused for, so a refusal becomes a verdict instead of silence. */
     private var controlWaits = 0
+
+    /**
+     * Ticks a refused driven damage has waited for the game's join gates to open. A rebooted session's
+     * client reports itself loaded before its player's spawn protection has expired, and that gate
+     * answers `hurtServer` with `false` before the hook is reached.
+     */
+    private var hurtWaits = 0
+
+    /** Ticks the sync probe has waited for the client's clock to leave 0, so a silent client reports. */
+    private var clockSyncWaits = 0
 
     /** The player [Events.PLAYER_RESPAWNED] handed out while the respawn drive was armed. */
     private var respawnObservation: ServerPlayer? = null
@@ -2121,8 +2139,22 @@ object WorldProbe {
         val clientInstance = clientManager.instanceOf(clientClock) ?: return false
         val tick = server.tickCount
         if (clockSyncPhase == 0) {
+            // A client that is still joining has a copy standing at 0: nothing has told it the time
+            // yet, and a write delivered before its level ticks is never read back. Waiting for the
+            // copy to come alive keeps the check about the packet, not about the join schedule.
+            val clientNow = clientInstance.totalTicks()
+            if (clientNow == 0L) {
+                if (clockSyncWaits++ < CLOCK_SYNC_READY_TICKS) return false
+                E2E.check(
+                    "api.clock_client_sync",
+                    false,
+                    "the client's clock still reads 0 after $clockSyncWaits ticks; the client never received a time",
+                )
+                clockSyncPhase = 2
+                return true
+            }
             clockSyncPrevious = instance.totalTicks()
-            clockSyncClientBefore = clientInstance.totalTicks()
+            clockSyncClientBefore = clientNow
             // Ahead of *both* copies: whichever one is further along decides the jump, so no copy can
             // reach the target by counting on its own inside the wait window.
             clockSyncTarget = maxOf(clockSyncPrevious, clockSyncClientBefore) + CLOCK_SYNC_JUMP
@@ -3135,7 +3167,10 @@ object WorldProbe {
         // A just-joined player is invulnerable until the client reports its terrain loaded
         // (`ServerPlayer.isInvulnerableTo`), and an invulnerable damage application returns before it
         // reaches the base `hurtServer` the hook sits on — so the drive waits for that window to close
-        // instead of reporting the game's own gate as a missing event.
+        // instead of reporting the game's own gate as a missing event. `hasClientLoaded` flips early in
+        // the join, before every protection of a rebooted session's player has expired, so an
+        // application the game refused on that gate is retried for the budget its rewrite sibling
+        // already gives a refused control damage rather than being read as a missing event.
         if (!clientLoaded(player)) return false
         val level = player.level()
         val source = level.damageSources().generic()
@@ -3150,11 +3185,17 @@ object WorldProbe {
         }
         val healthAfter = player.health
         val seen = hurtObservation
+        // No observation, no application and no health change is the game returning before the hook,
+        // not an event that went missing: the join gate and the spawn protection both answer that way.
+        if (seen == null && !applied && healthAfter == healthBefore && hurtWaits++ < REFUSED_DAMAGE_WAIT_TICKS) {
+            return false
+        }
         E2E.check(
             "event.living_hurt",
             seen != null && seen.first == HURT_AMOUNT && !seen.third && !applied && healthAfter == healthBefore,
             "handler saw amount=${seen?.first} type=${seen?.second} attacker=${seen?.third}; hurtServer returned $applied; " +
-                "health $healthBefore -> $healthAfter in ${player.gameModeName} mode",
+                "health $healthBefore -> $healthAfter in ${player.gameModeName} mode " +
+                "(the game refused the drive for $hurtWaits tick(s))",
         )
         return true
     }
