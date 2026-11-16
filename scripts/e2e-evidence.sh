@@ -19,6 +19,31 @@ e2e_java_version() {
   "$1" -version 2>&1 | grep -v '^Picked up' | head -1
 }
 
+# The JVM floor the gates enforce on the *game* JVM: 27.0.2. Zulu 27.0.1 carries the Windows
+# stack-probe defect JDK-8394484 — random 0xC0000005 with no hs_err, indistinguishable from a
+# native crash — fixed in 27.0.2, which is also OMLBootstrap's own minimum. A gate run on the
+# wrong build is worse than a failed run: its verdicts are noise.
+e2e_java_at_floor() {
+  local banner version
+  banner=$(e2e_java_version "$1")
+  version=$(printf '%s' "$banner" | sed -n 's/.*version "\([0-9][0-9.]*\).*/\1/p')
+  [ -n "$version" ] || return 1
+  local major rest
+  major=${version%%.*}
+  rest=${version#*.}
+  [ "$major" -gt 27 ] && return 0
+  [ "$major" -lt 27 ] && return 1
+  # "27" with no dot after it parses as 27.0.0 — below the floor by definition.
+  [ "$rest" = "$version" ] && return 1
+  local interim update
+  interim=${rest%%.*}
+  # 27.1.0 and up are feature-bump builds beyond the 27.0.x line: floor cleared.
+  if [ "$interim" -gt 0 ]; then return 0; fi
+  rest=${rest#*.}
+  update=${rest%%.*}
+  [ "$update" -ge 2 ]
+}
+
 # Which JVM the *game* runs on, as opposed to the one the build runs on (see the gate scripts).
 #
 # Order: OML_RUNTIME_JAVA (explicit, always wins) -> the fixed local 27.0.2 build, when this machine
@@ -27,10 +52,17 @@ e2e_java_version() {
 # is 0xC0000005 with no hs_err — indistinguishable from a native crash, which is what made a JVM bug
 # look like a game bug. A CI checkout has no such directory, so it falls through to the toolchain and
 # this branch costs one failed `-x`. OML_TEST_JDK_HOME covers other machines portably.
+#
+# Every resolution path ends in e2e_java_at_floor: an explicit OML_RUNTIME_JAVA on 27.0.1 fails the
+# gate instead of being honored — the override picks *which* JVM, never *how old*.
 e2e_resolve_runtime_java() {
   local who="$1" candidate
   if [ -n "${OML_RUNTIME_JAVA:-}" ]; then
     if [ -x "$OML_RUNTIME_JAVA" ]; then
+      if ! e2e_java_at_floor "$OML_RUNTIME_JAVA"; then
+        echo "$who: FATAL: OML_RUNTIME_JAVA=$OML_RUNTIME_JAVA is below the 27.0.2 floor ($(e2e_java_version "$OML_RUNTIME_JAVA")); refusing to run the gate on a JDK-8394484 build" >&2
+        exit 2
+      fi
       echo "$who: game JVM -> $OML_RUNTIME_JAVA ($(e2e_java_version "$OML_RUNTIME_JAVA"))"
       return 0
     fi
