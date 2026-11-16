@@ -288,7 +288,6 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider, OM
                     "hud.rendered",
                     "gui.open_screen",
                     "event.server_started",
-                    "event.player_joined",
                     "api.server_handle",
                     "api.server_level_lookup",
                     "api.registry_reads",
@@ -360,6 +359,10 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider, OM
                     "event.block_used",
                     "event.item_used",
                 )
+                // The session mask suppresses a handover session's join on purpose — the reboot gate
+                // expects the suppression itself (reboot.join_masked) instead. A plain session's join
+                // is the ordinary event and must fire.
+                if (!RebootProbe.handoverExpected) E2E.expect("event.player_joined")
             }
         }
 

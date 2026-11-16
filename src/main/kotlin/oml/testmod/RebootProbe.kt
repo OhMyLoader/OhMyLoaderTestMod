@@ -4,6 +4,8 @@ import org.ohmyloader.api26_3.OMLGame
 import org.ohmyloader.api26_3.OMLReboot
 import org.ohmyloader.api26_3.RebootRestore
 import org.ohmyloader.api26_3.currentScreen
+import org.ohmyloader.api26_3.event.Events
+import org.ohmyloader.api26_3.event.OMLSessionEvents
 
 /**
  * The reboot handover gate: what the second session must be able to prove about the first one.
@@ -20,6 +22,9 @@ import org.ohmyloader.api26_3.currentScreen
  * | `reboot.curtain_lifted` | the red transition released the screen when it was done |
  * | `reboot.window_kept` | the window lease is on if and only if this session adopted a handle |
  * | `reboot.surface_released` | the retiring session really closed its GPU surface |
+ * | `reboot.join_masked` | the session mask suppressed the reconnect's join dispatch *and* the vanilla announcement |
+ * | `reboot.chat_pure` | no `joined/left the game` text ever reached the chat during the handover |
+ * | `session.resumed` | [OMLSessionEvents.RESUMED] fired once, when the curtain lifted |
  *
  * <p>Declared only when the supervisor is actually holding a snapshot: a plain first session has no
  * handover to report, and expecting one would make every ordinary run red.
@@ -30,6 +35,15 @@ object RebootProbe {
 
     /** Whether this session is the receiving half of a handover; without one there is nothing to report. */
     private var declared = false
+
+    /** Whether this session must report the handover checks (see [OMLTestMod]'s join expectation). */
+    val handoverExpected: Boolean get() = declared
+
+    /** What [OMLSessionEvents.RESUMED] delivered, or null while it has not fired. */
+    private var resumedOutcome: String? = null
+
+    /** Set when a join/leave announcement reaches the chat — the one thing the mask must prevent. */
+    private var sawJoinLeaveChat = false
 
     fun declare() {
         if (!E2E.isEnabled) return
@@ -42,7 +56,22 @@ object RebootProbe {
             "reboot.curtain_lifted",
             "reboot.window_kept",
             "reboot.surface_released",
+            "reboot.join_masked",
+            "reboot.chat_pure",
+            "session.resumed",
         )
+        // The soft-reboot lifecycle event: one RESUMED replaces the masked join/leave pair.
+        OMLSessionEvents.RESUMED.register { event ->
+            resumedOutcome = event.outcome
+            println("[oml_testmod] OMLSessionEvents.RESUMED: outcome=${event.outcome} summary=${event.summary}")
+        }
+        // The announcements are swallowed server-side, before any packet exists; this sees what the
+        // client would have rendered had one slipped through. The match is on the default language's
+        // text — the gate runs en_us, and the translations themselves carry the keys being masked.
+        Events.CHAT_RECEIVED.register { event ->
+            val text = event.message
+            if ("joined the game" in text || "left the game" in text) sawJoinLeaveChat = true
+        }
         println("[oml_testmod] reboot handover expected: ${OMLReboot.leaseTrace()}")
     }
 
@@ -87,6 +116,29 @@ object RebootProbe {
             trace,
         )
         E2E.check("reboot.surface_released", RebootRestore.leaseSurfaceClosed, trace)
-        println("[oml_testmod] reboot handover: $trace outcome=${RebootRestore.outcome}")
+        // The mask needs both halves of the evidence: a suppressed dispatch proves the event funnel
+        // ran and was filtered (not that the hook was simply absent), and a swallowed announcement
+        // proves the broadcast path was filtered on the same window.
+        E2E.check(
+            "reboot.join_masked",
+            RebootRestore.maskedJoins >= 1 && RebootRestore.maskedBroadcasts >= 1,
+            "join dispatches masked=${RebootRestore.maskedJoins} " +
+                "broadcasts swallowed=${RebootRestore.maskedBroadcasts}",
+        )
+        E2E.check(
+            "reboot.chat_pure",
+            !sawJoinLeaveChat,
+            "a join/leave announcement reached the chat during the handover",
+        )
+        E2E.check(
+            "session.resumed",
+            resumedOutcome != null,
+            "OMLSessionEvents.RESUMED never fired",
+        )
+        println(
+            "[oml_testmod] reboot handover: $trace outcome=${RebootRestore.outcome} " +
+                "resumed=$resumedOutcome joins-masked=${RebootRestore.maskedJoins} " +
+                "broadcasts-masked=${RebootRestore.maskedBroadcasts}",
+        )
     }
 }
