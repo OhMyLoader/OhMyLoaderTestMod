@@ -19,6 +19,7 @@ import org.ohmyloader.api.content.OMLContentProvider
 import org.ohmyloader.api.network.OMLNetworkProvider
 import org.ohmyloader.api.network.OMLNetworkRegistry
 import org.ohmyloader.api26_3.OMLGame
+import org.ohmyloader.api26_3.OMLReboot
 import org.ohmyloader.api26_3.currentScreen
 import org.ohmyloader.api26_3.event.Events
 
@@ -175,8 +176,44 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider, OM
         E2E.hit("content.declared")
     }
 
+    /**
+     * `-Doml.reboot.rounds=N`: spends N-1 sessions on reboots and leaves the last one to the probes.
+     *
+     * <p>One handover cannot tell a fixed cost from a growing one, and a resource that is released
+     * per session only shows up as a trend across several. The property survives the session swap
+     * because system properties belong to the process; counting it down here is what makes the run
+     * end. A round installs no verdict: it has no expectations to meet, and a shutdown hook in a
+     * session that exists only to reboot would report every check as missing.
+     *
+     * @return true when this session is a round and the probes must not register.
+     */
+    private fun rebootStressRound(): Boolean {
+        val rounds = System.getProperty("oml.reboot.rounds")?.toIntOrNull() ?: return false
+        if (rounds <= 1) {
+            System.clearProperty("oml.reboot.rounds")
+            return false
+        }
+        System.setProperty("oml.reboot.rounds", (rounds - 1).toString())
+        println("[oml_testmod] reboot stress: round $rounds reboots after $STRESS_TICKS ticks")
+        var ticks = 0
+        var issued = false
+        Events.CLIENT_TICK.register {
+            if (issued) return@register
+            ticks++
+            if (ticks < STRESS_TICKS) return@register
+            // A round that reboots before the world finishes loading carries no snapshot, and the
+            // point of the stress is the repeated handover, not the empty one.
+            if (OMLGame.client?.level == null) return@register
+            issued = true
+            OMLReboot.restart("stress round $rounds")
+        }
+        return true
+    }
+
     override fun onInitialize(context: ModContext) {
         println("[oml_testmod] initialization complete: id=${context.id} name=${context.name} version=${context.version}")
+
+        if (rebootStressRound()) return
 
         // E2E runs (see E2E): the probes below end in a verdict the caller can fail on. The
         // expectations are declared per side because over half of them can only be observed on one.
@@ -648,3 +685,6 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider, OM
     }
 
 }
+
+/** Long enough that a stress round owns a loaded world, so every handover carries a snapshot too. */
+private const val STRESS_TICKS = 200
