@@ -28,9 +28,13 @@ object RebootProbe {
 
     private var settled = false
 
+    /** Whether this session is the receiving half of a handover; without one there is nothing to report. */
+    private var declared = false
+
     fun declare() {
         if (!E2E.isEnabled) return
         if (!RebootRestore.pendingSnapshot()) return
+        declared = true
         E2E.expect(
             "reboot.snapshot_carried",
             "reboot.save_opened",
@@ -42,9 +46,16 @@ object RebootProbe {
         println("[oml_testmod] reboot handover expected: ${OMLReboot.leaseTrace()}")
     }
 
-    /** Reports once, when the restore state machine has finished — success or failure. */
+    /**
+     * Reports once, when the restore state machine has finished — success or failure.
+     *
+     * <p>Gated on [declared], not on the state machine: a session that inherited no snapshot still
+     * reaches DONE (there was nothing to restore), and reporting the handover checks from it marked
+     * a plain run red for a reboot that never happened — which is what a crashed predecessor left
+     * behind.
+     */
     fun tickClient() {
-        if (!E2E.isEnabled || settled) return
+        if (!E2E.isEnabled || settled || !declared) return
         if (RebootRestore.state != RebootRestore.State.DONE) return
         settled = true
         val trace = OMLReboot.leaseTrace()
