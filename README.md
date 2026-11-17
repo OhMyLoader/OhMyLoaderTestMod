@@ -30,7 +30,7 @@ The jar contains three mods:
   `-Poml.e2e.ticks=N`). It kills players, moves blocks, and changes game rules, so a normal run must stay
   inert; otherwise the observed world is the probe's world, not the mod's world.
 - `techmod`: the API sample mod. It builds a copper/tin material chain and a press in the style of a real mod
-  to expose gaps in `oml-api`; see [README-TECHMOD.md](README-TECHMOD.md).
+  to expose gaps in `oml-api-core`; see [README-TECHMOD.md](README-TECHMOD.md).
 - `oml_playmod` (Playground Kit): a playable mod with `/kit`, a gallery dimension, launch pads, waystones,
   recall pearls, and a key panel. It declares no assertions; its purpose is to use the API the way a mod
   author would.
@@ -62,6 +62,6 @@ oml {
 
 ## API stability
 
-The mod-author compatibility contract for `oml-api` (stability layers, version policy, deprecation) is in
-[oml-api/README.md](https://github.com/OhMyLoader/OhMyLoader/blob/main/oml-api/README.md) in the loader
+The mod-author compatibility contract for `oml-api-core` (stability layers, version policy, deprecation) is in
+[oml-api-core/README.md](https://github.com/OhMyLoader/OhMyLoader/blob/main/oml-api-core/README.md) in the loader
 repository.

@@ -5,12 +5,12 @@ This repository contains three mods in one jar, with three `@Mod` entry points:
 - `oml_testmod` (`oml.testmod`): the end-to-end verification mod; it covers loader capabilities one by one in
   the development loop.
 - `techmod` (`oml.techmod`): the API sample mod. It deliberately uses APIs the way a real mod would, with a
-  material chain, to expose gaps in `oml-api`. This file tracks those gaps.
+  material chain, to expose gaps in `oml-api-core`. This file tracks those gaps.
 - `oml_playmod` (`oml.playmod`): the playable mod; see the E2E section in the repository README.
 
 ## Sample rules
 
-1. Use only `oml-api`; do not use the `platform` escape hatch.
+1. Use only `oml-api-core`; do not use the `platform` escape hatch.
 2. When an API gap appears, leave a `Missing:` comment at the declaration as a code anchor and add the gap to
    this file. Do not work around it in the mod; a workaround defeats the sample.
 

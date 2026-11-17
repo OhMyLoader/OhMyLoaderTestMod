@@ -21,7 +21,7 @@ import org.ohmyloader.api.game.serverLevel
 
 /**
  * The reference technology mod: the sample that has to stay inside the official API surface — the
- * version-independent `oml-api` plus the version-facing `oml-api-game` extensions — never the
+ * version-independent `oml-api-core` plus the version-facing `oml-api` extensions — never the
  * `platform` escape hatch.
  *
  * Two rules when editing this file: never touch the `platform` escape hatch, and record every API
