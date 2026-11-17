@@ -163,7 +163,12 @@ object E2E {
             "$PREFIX READY ticks=$ticksSeen side=$side" +
                 if (missing.isEmpty()) "" else " incomplete=${missing.size} (${missing.joinToString(",")})",
         )
-        if (side == "client") quitClient() else quitServer()
+        if (side == "client") quitClient() else if (!multiplayer) quitServer()
+        // A multiplayer server must NOT self-quit: its expectations complete the moment the client
+        // finishes the first payload exchange, while the client (software-rendered, per-frame ticks)
+        // is still minutes of frames away from READY — self-quitting here kicked it mid-run with
+        // "Server closed" and failed network.join. The harness /stops this server itself once the
+        // client has exited; the shutdown hook writes the verdict on that graceful stop.
     }
 
     /** `oml.e2e.multiplayer=1`: this run joins the dedicated server the harness started alongside it. */
