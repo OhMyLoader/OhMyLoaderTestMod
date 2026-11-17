@@ -173,7 +173,10 @@ object WorldProbe {
     private const val ANCHOR_YAW = 90f
 
     /** How long the press ticker is given to visit a block entity the probe placed on this tick. */
-    private const val PROGRESS_TICK_WAIT_LIMIT = 20
+    private const val PROGRESS_TICK_WAIT_LIMIT = 40
+
+    /** How many extra ticks a just-issued teleport may take to become visible before it is a failure. */
+    private const val TELEPORT_SETTLE_TICKS = 5
 
     /** A border this tight excludes [OUTSIDE_BORDER_POSITION] and ANCHOR_POSITION's column alike. */
     private const val TIGHT_BORDER_SIZE = 50.0
@@ -819,6 +822,9 @@ object WorldProbe {
     private var goalCow: LivingEntity? = null
     private var goalStarted = false
     private var goalTicked = 0
+
+    /** Ticks the teleport probe has waited for an accepted move to become visible. */
+    private var teleportSettleTicks = 0
 
     /**
      * Spawns a cow next to the player and gives it a behavior that can always run: the game must
@@ -1716,6 +1722,12 @@ object WorldProbe {
             return false
         }
         val dataA = server.blockDataAt(MOD_DIMENSION, PRESS_DATA_POSITION)
+        // The machine only counts while slot 0 holds input, and a block entity created this tick may not
+        // have exposed its slot surface yet when the first put ran; keep the input in place while the
+        // ticker is given its window instead of reading "idle" as "the address never ticked".
+        val slots = a.machineSlotsAt(PRESS_DATA_POSITION)
+        if (slots?.stackAt(0) == null) slots?.putStack(0, OMLDataItemStack("techmod:copper_ingot", 1))
+        val inputId = slots?.stackAt(0)?.itemId ?: "none"
         // A block entity created during this tick's probe step is only visited by the game's own block-entity
         // pass afterwards, so one tick of distance still reads the value it was born with: wait for the ticker
         // to show itself, bounded.
@@ -1757,7 +1769,7 @@ object WorldProbe {
             flags.all { it.second },
             "${flags.filterNot { it.second }.map { it.first }} failed of ${flags.size}; " +
                 "progress $pressDataProgressBefore -> $progressAfter identity=$pressDataIdentity " +
-                "sideA=$sideA sideB=$sideB markerInB=$markerInB " +
+                "input=$inputId sideA=$sideA sideB=$sideB markerInB=$markerInB " +
                 "removed=$removedKey/$removedAgain cleared=$cleared " +
                 "ticks=${server.tickCount - pressDataWriteTick}",
         )
@@ -2514,6 +2526,15 @@ object WorldProbe {
         val turned = player.teleport(home.x + 0.5, home.y + 0.1, home.z + 0.5, yRot = 90f, xRot = 20f)
         val facing = player.yRot
         val pitch = player.xRot
+        // An accepted move is reported before the game has necessarily written it: give a just-issued
+        // teleport a few ticks to become visible, then judge — the sequence re-runs from wherever the
+        // player actually is, so nothing is retried into a different contract.
+        val arrived = afterMove == target
+        val oriented = abs(facing - 90f) < 0.01f && abs(pitch - 20f) < 0.01f
+        if (moved && turned && (!arrived || !oriented) && teleportSettleTicks++ < TELEPORT_SETTLE_TICKS) {
+            return false
+        }
+        teleportSettleTicks = 0
         val flags = listOf(
             "the plain move is accepted" to moved,
             "the game put the player on the named block" to (afterMove == target),
