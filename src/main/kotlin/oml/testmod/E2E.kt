@@ -3,9 +3,9 @@ package oml.testmod
 import oml.testmod.E2E.quitClient
 import net.minecraft.client.gui.screens.DisconnectedScreen
 import net.minecraft.network.DisconnectionDetails
-import org.ohmyloader.api26_3.OMLGame
-import org.ohmyloader.api26_3.currentScreen
-import org.ohmyloader.api26_3.event.Events
+import org.ohmyloader.api.game.OMLGame
+import org.ohmyloader.api.game.currentScreen
+import org.ohmyloader.api.game.event.Events
 import java.io.FileDescriptor
 import java.io.FileOutputStream
 import java.io.PrintStream

@@ -5,17 +5,17 @@ import net.minecraft.server.level.ServerPlayer
 import org.ohmyloader.api.command.OMLArgumentType
 import org.ohmyloader.api.command.OMLCommandRegistry
 import org.ohmyloader.api.command.OMLCommandSource
-import org.ohmyloader.api26_3.*
-import org.ohmyloader.api26_3.raycast
-import org.ohmyloader.api26_3.foodLevel
-import org.ohmyloader.api26_3.saturation
-import org.ohmyloader.api26_3.xpLevel
-import org.ohmyloader.api26_3.xpProgress
-import org.ohmyloader.api26_3.allowFlight
-import org.ohmyloader.api26_3.isFlying
-import org.ohmyloader.api26_3.invulnerable
-import org.ohmyloader.api26_3.explode
-import org.ohmyloader.api26_3.OMLBossBar
+import org.ohmyloader.api.game.*
+import org.ohmyloader.api.game.raycast
+import org.ohmyloader.api.game.foodLevel
+import org.ohmyloader.api.game.saturation
+import org.ohmyloader.api.game.xpLevel
+import org.ohmyloader.api.game.xpProgress
+import org.ohmyloader.api.game.allowFlight
+import org.ohmyloader.api.game.isFlying
+import org.ohmyloader.api.game.invulnerable
+import org.ohmyloader.api.game.explode
+import org.ohmyloader.api.game.OMLBossBar
 import kotlin.math.abs
 
 /**

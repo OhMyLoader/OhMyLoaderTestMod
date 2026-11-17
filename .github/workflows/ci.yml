@@ -18,10 +18,6 @@ on:
         description: TestMod commit/tag/branch to verify (empty keeps this workflow's ref)
         required: false
         default: ''
-      game_version:
-        description: Minecraft version
-        required: false
-        default: '26.3'
 
 permissions:
   contents: read
@@ -29,9 +25,6 @@ permissions:
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event.inputs.loader_ref || 'event' }}
   cancel-in-progress: true
-
-env:
-  OML_GAME_VERSION: ${{ github.event.inputs.game_version || '26.3' }}
 
 jobs:
   build:
@@ -86,7 +79,7 @@ jobs:
       - run: ./scripts/check-oml-version.sh
       - run: ./gradlew -p OhMyLoader publishToMavenLocal
       - run: ./gradlew -p OhMyLoaderGradle publishToMavenLocal
-      - run: ./gradlew -Poml.gameVersion="$OML_GAME_VERSION" build
+      - run: ./gradlew build
 
   # The gate the build job cannot be: it actually launches the game. Both E2E jobs start the same way
   # (three checkouts + publish the layer into mavenLocal), because mavenLocal is per-job.

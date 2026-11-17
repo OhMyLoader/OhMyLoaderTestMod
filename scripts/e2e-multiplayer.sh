@@ -2,7 +2,7 @@
 # Dedicated server + remote client gate: the client joins a real dedicated server, exchanges the
 # payload with it, then quits; the harness stops the server and requires both verdicts.
 #
-# Env: OML_GAME_VERSION (26.3), OML_E2E_OML_VERSION (release version override),
+# Env: OML_E2E_OML_VERSION (release version override),
 #      OML_E2E_TICKS (200), OML_E2E_TIMEOUT (900), OML_E2E_WATCHDOG (840),
 #      OML_E2E_SERVER_WATCHDOG (1200), OML_E2E_GRACE_SECONDS (720),
 #      OML_E2E_READY_TIMEOUT (240), OML_E2E_STOP_TIMEOUT (60),
@@ -11,7 +11,9 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit
 
-GAME_VERSION="${OML_E2E_GAME_VERSION:-${OML_GAME_VERSION:-26.3}}"
+# The game version is gradle.properties' oml_game_version and nowhere else.
+GAME_VERSION="$(sed -n 's/^oml_game_version=//p' gradle.properties | head -1)"
+[ -n "$GAME_VERSION" ] || { echo "e2e-multiplayer: oml_game_version missing from gradle.properties" >&2; exit 1; }
 TICKS="${OML_E2E_TICKS:-200}"
 TIMEOUT="${OML_E2E_TIMEOUT:-900}"
 WATCHDOG="${OML_E2E_WATCHDOG:-840}"
@@ -29,7 +31,7 @@ CLIENT_CONTEXT="${OML_E2E_MULTIPLAYER_CLIENT_CONTEXT:-build/e2e-context-multipla
 CLIENT_RESULT="${OML_E2E_MULTIPLAYER_CLIENT_RESULT:-build/e2e-result-multiplayer-client.json}"
 SERVER_LOG_FILE="logs/oml-console.log"
 
-export OML_GAME_VERSION="$GAME_VERSION"
+export OML_E2E_GAME_VERSION="$GAME_VERSION"
 export OML_E2E_MULTIPLAYER=1
 
 mkdir -p build run/server run/client
@@ -112,7 +114,6 @@ evidence_start server "$SERVER_LOG" "$SERVER_CONTEXT" "$SERVER_RESULT"
 unset OML_LOG_FILE
 
 SERVER_ARGS=(
-  -Poml.gameVersion="$GAME_VERSION"
   -Poml.e2e.ticks="$TICKS"
   -Poml.e2e.timeoutSeconds="$SERVER_WATCHDOG"
   -Poml.e2e.graceSeconds="$GRACE"
@@ -156,7 +157,6 @@ unset OML_LOG_FILE
 evidence_start client "$CLIENT_LOG" "$CLIENT_CONTEXT" "$CLIENT_RESULT"
 
 CLIENT_ARGS=(
-  -Poml.gameVersion="$GAME_VERSION"
   -Poml.quickPlayServer="127.0.0.1:$PORT"
   -Poml.e2e.ticks="$TICKS"
   -Poml.e2e.timeoutSeconds="$WATCHDOG"

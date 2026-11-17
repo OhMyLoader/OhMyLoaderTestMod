@@ -11,17 +11,17 @@ import org.ohmyloader.api.command.OMLCommandRegistry
 import org.ohmyloader.api.content.ContentRegistry
 import org.ohmyloader.api.content.OMLContentProvider
 import org.ohmyloader.api.content.OMLDataItemStack
-import org.ohmyloader.api26_3.blockDataAt
-import org.ohmyloader.api26_3.giveItem
-import org.ohmyloader.api26_3.itemIn
-import org.ohmyloader.api26_3.itemId
-import org.ohmyloader.api26_3.remove
-import org.ohmyloader.api26_3.sendSystemMessage
-import org.ohmyloader.api26_3.serverLevel
+import org.ohmyloader.api.game.blockDataAt
+import org.ohmyloader.api.game.giveItem
+import org.ohmyloader.api.game.itemIn
+import org.ohmyloader.api.game.itemId
+import org.ohmyloader.api.game.remove
+import org.ohmyloader.api.game.sendSystemMessage
+import org.ohmyloader.api.game.serverLevel
 
 /**
  * The reference technology mod: the sample that has to stay inside the official API surface — the
- * version-independent `oml-api` plus the version-facing `oml-api-26_3` extensions — never the
+ * version-independent `oml-api` plus the version-facing `oml-api-game` extensions — never the
  * `platform` escape hatch.
  *
  * Two rules when editing this file: never touch the `platform` escape hatch, and record every API

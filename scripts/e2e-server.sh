@@ -10,7 +10,7 @@
 #      a session that never finishes into a FAIL instead of a hang), OML_E2E_GRACE_SECONDS,
 #      OML_E2E_EXPECT_EXTRA (gate self-test: an expectation nothing reports, so a working gate must fail),
 #      OML_E2E_SEED (oml-e2e, the world seed a generated world is created from),
-#      OML_GAME_VERSION (26.3), OML_E2E_OML_VERSION (overrides the SNAPSHOT coordinate for a release gate),
+#      OML_E2E_OML_VERSION (overrides the SNAPSHOT coordinate for a release gate),
 #      OML_E2E_CONTEXT / OML_E2E_RESULT (evidence paths, default build/e2e-{context,result}-server.json),
 #      OML_RUNTIME_JAVA / OML_TEST_JDK_HOME (which JVM the game runs on — see e2e_resolve_runtime_java).
 set -uo pipefail
@@ -20,9 +20,11 @@ TICKS="${OML_E2E_TICKS:-200}"
 READY_TIMEOUT="${OML_E2E_READY_TIMEOUT:-240}"
 STOP_TIMEOUT="${OML_E2E_STOP_TIMEOUT:-60}"
 LOG="${OML_E2E_LOG:-build/e2e-server.log}"
-GAME_VERSION="${OML_E2E_GAME_VERSION:-${OML_GAME_VERSION:-26.3}}"
+# The game version is gradle.properties' oml_game_version and nowhere else.
+GAME_VERSION="$(sed -n 's/^oml_game_version=//p' gradle.properties | head -1)"
+[ -n "$GAME_VERSION" ] || { echo "e2e-server: oml_game_version missing from gradle.properties" >&2; exit 1; }
 export OML_E2E_GAME_VERSION="$GAME_VERSION"
-E2E_ARGS=(-Poml.gameVersion="$GAME_VERSION" -Poml.e2e.ticks="$TICKS" -Poml.e2e.timeoutSeconds="${OML_E2E_WATCHDOG:-300}")
+E2E_ARGS=(-Poml.e2e.ticks="$TICKS" -Poml.e2e.timeoutSeconds="${OML_E2E_WATCHDOG:-300}")
 [ -n "${OML_E2E_GRACE_SECONDS:-}" ] && E2E_ARGS+=(-Poml.e2e.graceSeconds="$OML_E2E_GRACE_SECONDS")
 [ -n "${OML_E2E_EXPECT_EXTRA:-}" ] && E2E_ARGS+=(-Poml.e2e.expectExtra="$OML_E2E_EXPECT_EXTRA")
 [ -n "${OML_LOG_FILE:-}" ] && E2E_ARGS+=(-Poml.log.file="$OML_LOG_FILE")

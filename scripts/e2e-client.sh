@@ -15,7 +15,7 @@
 # Env: OML_E2E_TICKS (default 200), OML_E2E_TIMEOUT (420s), OML_E2E_LOG (build/e2e-client.log),
 #      OML_E2E_QUICKPLAY (default oml-e2e-world), OML_E2E_GRACE_SECONDS, OML_E2E_WATCHDOG,
 #      OML_E2E_EXPECT_EXTRA (gate self-test), OML_E2E_NO_JOIN (title-screen self-test), OML_LOG_FILE,
-#      OML_GAME_VERSION (26.3), OML_E2E_OML_VERSION (overrides the SNAPSHOT coordinate for a release gate),
+#      OML_E2E_OML_VERSION (overrides the SNAPSHOT coordinate for a release gate),
 #      OML_E2E_CONTEXT / OML_E2E_RESULT (evidence paths, default build/e2e-{context,result}-client.json),
 #      OML_RUNTIME_JAVA (the JVM the *game* runs on; default: a local 27.0.2 build if present, else the
 #      build's toolchain), OML_TEST_JDK_HOME (portable way to name that JDK).
@@ -33,7 +33,10 @@ WATCHDOG="${OML_E2E_WATCHDOG:-$((TIMEOUT - 30))}"
 # client ticks accrue on the title screen exactly as they do in a world — so booting straight to the
 # title and letting the budget expire proves the verdict can fail at a fraction of a full run's cost.
 NO_JOIN="${OML_E2E_NO_JOIN:-}"
-GAME_VERSION="${OML_E2E_GAME_VERSION:-${OML_GAME_VERSION:-26.3}}"
+# The game version is gradle.properties' oml_game_version and nowhere else — no environment variable
+# and no `-P` can move it.
+GAME_VERSION="$(sed -n 's/^oml_game_version=//p' gradle.properties | head -1)"
+[ -n "$GAME_VERSION" ] || { echo "e2e-client: oml_game_version missing from gradle.properties" >&2; exit 1; }
 export OML_E2E_GAME_VERSION="$GAME_VERSION"
 export OML_E2E_QUICKPLAY="$WORLD"
 mkdir -p "$(dirname "$LOG")"
@@ -85,7 +88,7 @@ done
 echo 'onboardAccessibility:false' >> "$OPTIONS"
 echo 'pauseOnLostFocus:false' >> "$OPTIONS"
 
-E2E_ARGS=(-Poml.gameVersion="$GAME_VERSION" -Poml.e2e.ticks="$TICKS" -Poml.e2e.timeoutSeconds="$WATCHDOG")
+E2E_ARGS=(-Poml.e2e.ticks="$TICKS" -Poml.e2e.timeoutSeconds="$WATCHDOG")
 [ -n "${OML_E2E_OML_VERSION:-}" ] && E2E_ARGS+=(-Poml_version="$OML_E2E_OML_VERSION")
 if [ -n "${OML_RUNTIME_JAVA:-}" ] && [ -x "$OML_RUNTIME_JAVA" ]; then
   E2E_ARGS+=(-Poml.runtimeJava="$OML_RUNTIME_JAVA")

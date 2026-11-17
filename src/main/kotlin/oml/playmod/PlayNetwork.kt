@@ -1,8 +1,8 @@
 package oml.playmod
 
 import org.ohmyloader.api.network.*
-import org.ohmyloader.api26_3.blockIdAt
-import org.ohmyloader.api26_3.dimensionId
+import org.ohmyloader.api.game.blockIdAt
+import org.ohmyloader.api.game.dimensionId
 
 /**
  * The two messages the kit speaks: a player asking for their panel, which the key bind sends, and the panel

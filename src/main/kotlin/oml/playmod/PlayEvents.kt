@@ -5,9 +5,9 @@ import net.minecraft.world.InteractionHand
 import org.ohmyloader.api.tick.OMLScheduler
 import org.ohmyloader.api.tick.OMLSide
 import org.ohmyloader.api.tick.OMLTask
-import org.ohmyloader.api26_3.*
-import org.ohmyloader.api26_3.event.Events
-import org.ohmyloader.api26_3.event.OMLSessionEvents
+import org.ohmyloader.api.game.*
+import org.ohmyloader.api.game.event.Events
+import org.ohmyloader.api.game.event.OMLSessionEvents
 
 /**
  * What the kit does when the game moves. Every subscription is a reaction a player can see or feel, and a handler

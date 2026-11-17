@@ -3,10 +3,10 @@ package oml.playmod
 import net.minecraft.server.MinecraftServer
 import net.minecraft.server.level.ServerLevel
 import net.minecraft.server.level.ServerPlayer
-import org.ohmyloader.api26_3.OMLGame
-import org.ohmyloader.api26_3.levelById
-import org.ohmyloader.api26_3.onlinePlayers
-import org.ohmyloader.api26_3.playerByName
+import org.ohmyloader.api.game.OMLGame
+import org.ohmyloader.api.game.levelById
+import org.ohmyloader.api.game.onlinePlayers
+import org.ohmyloader.api.game.playerByName
 
 /**
  * The few lookups the rest of the kit needs, all of them the game's own objects: the running server, a named

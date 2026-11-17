@@ -7,7 +7,7 @@ import net.minecraft.world.entity.Entity
 import net.minecraft.world.entity.LivingEntity
 import net.minecraft.world.entity.player.Player
 import org.ohmyloader.api.content.OMLBlockTickEvent
-import org.ohmyloader.api26_3.*
+import org.ohmyloader.api.game.*
 
 /**
  * What the kit's blocks do. The `level` and `entity` a behavior hook hands over are the game's own objects, so

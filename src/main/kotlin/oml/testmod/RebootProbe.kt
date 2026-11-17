@@ -1,11 +1,11 @@
 package oml.testmod
 
-import org.ohmyloader.api26_3.OMLGame
-import org.ohmyloader.api26_3.OMLReboot
-import org.ohmyloader.api26_3.RebootRestore
-import org.ohmyloader.api26_3.currentScreen
-import org.ohmyloader.api26_3.event.Events
-import org.ohmyloader.api26_3.event.OMLSessionEvents
+import org.ohmyloader.api.game.OMLGame
+import org.ohmyloader.api.game.OMLReboot
+import org.ohmyloader.api.game.RebootRestore
+import org.ohmyloader.api.game.currentScreen
+import org.ohmyloader.api.game.event.Events
+import org.ohmyloader.api.game.event.OMLSessionEvents
 
 /**
  * The reboot handover gate: what the second session must be able to prove about the first one.

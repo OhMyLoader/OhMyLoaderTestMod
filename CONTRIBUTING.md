@@ -67,9 +67,10 @@ Linux; do not treat a Windows client launch as a substitute for the CI gate.
 
 ## Version pins
 
-`gradle.properties` pins `oml_version` and the default `oml.gameVersion` (`26.3`). Keep the version in
+`gradle.properties` pins `oml_version` and `oml_game_version` (the single source of truth for the
+game under test — it is read as a file, so no command-line `-P` can override it). Keep the version in
 step with the sibling loader and plugin publications. The CI workflow accepts `loader_ref`, `plugin_ref`,
-`testmod_ref`, and `game_version` inputs for a dispatched run; use them when validating a specific tree.
+and `testmod_ref` inputs for a dispatched run; use them when validating a specific tree.
 This repository has no release tag and publishes no Maven artifact.
 
 ## Commit and pull request

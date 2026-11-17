@@ -18,10 +18,10 @@ import org.ohmyloader.api.content.ContentRegistry
 import org.ohmyloader.api.content.OMLContentProvider
 import org.ohmyloader.api.network.OMLNetworkProvider
 import org.ohmyloader.api.network.OMLNetworkRegistry
-import org.ohmyloader.api26_3.OMLGame
-import org.ohmyloader.api26_3.OMLReboot
-import org.ohmyloader.api26_3.currentScreen
-import org.ohmyloader.api26_3.event.Events
+import org.ohmyloader.api.game.OMLGame
+import org.ohmyloader.api.game.OMLReboot
+import org.ohmyloader.api.game.currentScreen
+import org.ohmyloader.api.game.event.Events
 
 /**
  * The first end-to-end test mod written from a mod author's perspective using OML.
@@ -673,8 +673,15 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider, OM
             server.commands.performPrefixedCommand(server.createCommandSourceStack(), "oml_e2e_hello")
 
             // modlist.registered — the loader's built-in /oml command joined the same dispatcher;
-            // dispatching it proves the listing runs over the real mod state.
-            val omlNode = server.commands.dispatcher.root.getChild("oml")
+            // dispatching it proves the listing runs over the real mod state. 26.4 keeps the
+            // dispatcher private to the CommandBox hierarchy, and ParseBox exposes the instance the
+            // loader's handover registered into.
+            val parseBox = server.commands.parseBox()
+            val dispatcherField = parseBox.javaClass.superclass
+                .getDeclaredField("dispatcher")
+                .apply { isAccessible = true }
+            val dispatcher = dispatcherField.get(parseBox) as com.mojang.brigadier.CommandDispatcher<*>
+            val omlNode = dispatcher.root.getChild("oml")
             E2E.check("modlist.registered", omlNode != null, "the built-in /oml command is not registered")
             server.commands.performPrefixedCommand(server.createCommandSourceStack(), "oml mods")
 

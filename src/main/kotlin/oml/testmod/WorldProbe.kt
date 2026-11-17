@@ -48,10 +48,10 @@ import org.ohmyloader.api.content.OMLDataItemStack
 import org.ohmyloader.api.tick.OMLScheduler
 import org.ohmyloader.api.tick.OMLSide
 import org.ohmyloader.api.tick.OMLTask
-import org.ohmyloader.api26_3.*
-import org.ohmyloader.api26_3.event.BlockUsedEvent
-import org.ohmyloader.api26_3.event.Events
-import org.ohmyloader.api26_3.event.ItemUsedEvent
+import org.ohmyloader.api.game.*
+import org.ohmyloader.api.game.event.BlockUsedEvent
+import org.ohmyloader.api.game.event.Events
+import org.ohmyloader.api.game.event.ItemUsedEvent
 import java.util.*
 
 /**

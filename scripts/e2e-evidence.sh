@@ -163,7 +163,7 @@ e2e_evidence_property() {
 e2e_evidence_start() {
   local side="${1:-unknown}" log="${2:-}" context game seed seed_source
   context="${OML_E2E_CONTEXT:-build/e2e-context-${side}.json}"
-  game="${OML_E2E_GAME_VERSION:-${OML_GAME_VERSION:-26.3}}"
+  game="${OML_E2E_GAME_VERSION:-$(sed -n 's/^oml_game_version=//p' gradle.properties 2>/dev/null | head -1)}"
   seed="${OML_E2E_SEED:-oml-e2e}"
   seed_source="OML_E2E_SEED/default"
   if [ -f run/server/server.properties ]; then

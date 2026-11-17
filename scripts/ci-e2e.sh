@@ -3,18 +3,19 @@
 # layout in .github/workflows/ci.yml produces them, and runs the real server and client against the
 # artifacts under test. By default it publishes the sibling loader; OML_E2E_USE_STAGED_LOADER=1
 # makes it consume the build job's staging directory instead, so the gate cannot test a different
-# rebuild. OML_GATE_VERSION (for example v0.1.0) overrides the SNAPSHOT coordinate; OML_GAME_VERSION
-# selects the game line.
+# rebuild. OML_GATE_VERSION (for example v0.1.0) overrides the SNAPSHOT coordinate.
 set -euo pipefail
 cd "$(dirname "$0")/.." || exit
 
-GAME_VERSION="${OML_GAME_VERSION:-26.3}"
+# The game version is gradle.properties' oml_game_version and nowhere else — no environment variable
+# and no `-P` can move it.
+GAME_VERSION="$(sed -n 's/^oml_game_version=//p' gradle.properties | head -1)"
+[ -n "$GAME_VERSION" ] || { echo "ci-e2e: oml_game_version missing from gradle.properties" >&2; exit 1; }
 GATE_VERSION="${OML_GATE_VERSION:-}"
 GATE_VERSION="${GATE_VERSION#v}"
-export OML_GAME_VERSION="$GAME_VERSION"
 [ -n "$GATE_VERSION" ] && export OML_E2E_OML_VERSION="$GATE_VERSION"
 
-GRADLE_ARGS=(-Poml.gameVersion="$GAME_VERSION")
+GRADLE_ARGS=()
 [ -n "$GATE_VERSION" ] && GRADLE_ARGS+=(-Poml_version="$GATE_VERSION")
 
 echo "ci-e2e: game=$GAME_VERSION version=${GATE_VERSION:-from gradle.properties}"

@@ -4,7 +4,7 @@ import net.minecraft.core.BlockPos
 import org.ohmyloader.api.content.ContentRegistry
 
 import net.minecraft.world.entity.LivingEntity
-import org.ohmyloader.api26_3.*
+import org.ohmyloader.api.game.*
 
 /**
  * The whole of what the kit puts into the world, declared once at initialization. Mining, crafting, a machine

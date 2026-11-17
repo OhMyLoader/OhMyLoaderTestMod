@@ -1,3 +1,4 @@
+import java.util.Properties
 import org.jetbrains.gradle.ext.Gradle
 import org.jetbrains.gradle.ext.runConfigurations
 import org.jetbrains.gradle.ext.settings
@@ -33,8 +34,13 @@ tasks.withType<Test>().configureEach {
 // and scripts/check-oml-version.sh compares it against the loader and plugin checkouts.
 val omlVersion = providers.gradleProperty("oml_version").get()
 
-// The version under test. Switch with -Poml.gameVersion=<version>.
-val gameVersion = providers.gradleProperty("oml.gameVersion").orElse("26.3").get()
+// The version under test. THE single source is gradle.properties, read as a file rather than through
+// the property provider: a command-line `-P` must not be able to move the game version out from
+// under a suite whose probes were written against one concrete game.
+val gameVersion = Properties().apply {
+    file("gradle.properties").inputStream().use { load(it) }
+}.getProperty("oml_game_version")?.takeIf { it.isNotBlank() }
+    ?: error("oml_game_version is missing from gradle.properties")
 
 oml {
     minecraftVersion.set(gameVersion)

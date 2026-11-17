@@ -3,7 +3,7 @@ package oml.playmod
 import net.minecraft.core.BlockPos
 import net.minecraft.server.level.ServerLevel
 import net.minecraft.server.level.ServerPlayer
-import org.ohmyloader.api26_3.*
+import org.ohmyloader.api.game.*
 
 /**
  * The gallery — the dimension the kit declares, and the place where its clock and timeline are observable. The
