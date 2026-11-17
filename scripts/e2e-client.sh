@@ -88,12 +88,15 @@ done
 echo 'onboardAccessibility:false' >> "$OPTIONS"
 echo 'pauseOnLostFocus:false' >> "$OPTIONS"
 # OML_E2E_GRAPHICS_API=opengl|vulkan|default pins the renderer. Headless CI has no Vulkan device it
-# can use (26.4 prefers Vulkan, then the OpenGL fallback cannot find a GLX visual), so the workflow
-# runs this gate on OpenGL, the path the 26.3 gates used on the same runner.
+# can use (26.4 prefers Vulkan), so the workflow runs this gate on OpenGL — the path the 26.3 gates
+# used on the same runner. The options.txt key is the option's storage name,
+# `preferredGraphicsBackend` (NOT its translation key `options.graphicsApi`).
 if [ -n "${OML_E2E_GRAPHICS_API:-}" ]; then
-  grep -v '^graphicsApi:' "$OPTIONS" > "${OPTIONS}.tmp" || true
-  mv "${OPTIONS}.tmp" "$OPTIONS"
-  echo "graphicsApi:${OML_E2E_GRAPHICS_API}" >> "$OPTIONS"
+  for key in preferredGraphicsBackend graphicsApi; do
+    grep -v "^${key}:" "$OPTIONS" > "${OPTIONS}.tmp" || true
+    mv "${OPTIONS}.tmp" "$OPTIONS"
+  done
+  echo "preferredGraphicsBackend:${OML_E2E_GRAPHICS_API}" >> "$OPTIONS"
 fi
 
 E2E_ARGS=(-Poml.e2e.ticks="$TICKS" -Poml.e2e.timeoutSeconds="$WATCHDOG")
