@@ -120,13 +120,18 @@ jobs:
           key: gradle-build-cache-${{ runner.os }}-${{ hashFiles('**/*.kt', '**/*.kts', '**/*.java', 'gradle/libs.versions.toml', 'gradle.properties') }}
           restore-keys: |
             gradle-build-cache-${{ runner.os }}-
+      - name: The game version under test
+        run: |
+          version=$(sed -n 's/[[:space:]]//g; s/^oml_game_version=//p' gradle.properties | head -1)
+          [ -n "$version" ] || { echo "::error::oml_game_version missing from gradle.properties"; exit 1; }
+          echo "OML_GAME_VERSION=$version" >> "$GITHUB_ENV"
       - uses: actions/cache@v6
         with:
           path: |
-            run/${{ github.event.inputs.game_version || '26.3' }}/minecraft
-            run/${{ github.event.inputs.game_version || '26.3' }}/libraries
-            run/${{ github.event.inputs.game_version || '26.3' }}/natives
-          key: game-files-${{ github.event.inputs.game_version || '26.3' }}-${{ hashFiles('gradle.properties', 'build.gradle.kts') }}
+            run/${{ env.OML_GAME_VERSION }}/minecraft
+            run/${{ env.OML_GAME_VERSION }}/libraries
+            run/${{ env.OML_GAME_VERSION }}/natives
+          key: game-files-${{ env.OML_GAME_VERSION }}-${{ hashFiles('gradle.properties', 'build.gradle.kts') }}
       - run: ./scripts/check-oml-version.sh
       - run: ./gradlew -p OhMyLoader publishToMavenLocal
       - run: ./gradlew -p OhMyLoaderGradle publishToMavenLocal
@@ -217,15 +222,20 @@ jobs:
           key: gradle-build-cache-${{ runner.os }}-${{ hashFiles('**/*.kt', '**/*.kts', '**/*.java', 'gradle/libs.versions.toml', 'gradle.properties') }}
           restore-keys: |
             gradle-build-cache-${{ runner.os }}-
+      - name: The game version under test
+        run: |
+          version=$(sed -n 's/[[:space:]]//g; s/^oml_game_version=//p' gradle.properties | head -1)
+          [ -n "$version" ] || { echo "::error::oml_game_version missing from gradle.properties"; exit 1; }
+          echo "OML_GAME_VERSION=$version" >> "$GITHUB_ENV"
       - uses: actions/cache@v6
         with:
           path: |
-            run/${{ github.event.inputs.game_version || '26.3' }}/minecraft
-            run/${{ github.event.inputs.game_version || '26.3' }}/libraries
-            run/${{ github.event.inputs.game_version || '26.3' }}/natives
-          key: game-files-${{ github.event.inputs.game_version || '26.3' }}-${{ hashFiles('gradle.properties', 'build.gradle.kts') }}
-      # No GPU on a runner: Xvfb for the display and Mesa's software Vulkan/GL (lavapipe/llvmpipe) for
-      # the renderer 26.3 uses. OpenAL is installed so the client does not log a sound-engine failure.
+            run/${{ env.OML_GAME_VERSION }}/minecraft
+            run/${{ env.OML_GAME_VERSION }}/libraries
+            run/${{ env.OML_GAME_VERSION }}/natives
+          key: game-files-${{ env.OML_GAME_VERSION }}-${{ hashFiles('gradle.properties', 'build.gradle.kts') }}
+      # No GPU on a runner: Xvfb for the display, and Mesa's software OpenGL (llvmpipe). 26.4 prefers
+      # Vulkan, which has no usable device here; the gate pins OpenGL via OML_E2E_GRAPHICS_API.
       - name: Headless rendering stack
         run: |
           sudo apt-get update
@@ -244,6 +254,7 @@ jobs:
         env:
           LIBGL_ALWAYS_SOFTWARE: '1'
           MESA_LOADER_DRIVER_OVERRIDE: llvmpipe
+          OML_E2E_GRAPHICS_API: opengl
           OML_E2E_EXPECT_EXTRA: gate.self-test.never-reported
           OML_E2E_NO_JOIN: '1'
           OML_E2E_TIMEOUT: '900'
@@ -269,6 +280,7 @@ jobs:
         env:
           LIBGL_ALWAYS_SOFTWARE: '1'
           MESA_LOADER_DRIVER_OVERRIDE: llvmpipe
+          OML_E2E_GRAPHICS_API: opengl
           # llvmpipe/lavapipe: booting to the title screen and loading the world take minutes, and
           # the grace clock runs from JVM start — the 120s local-GPU default expires mid-join.
           # 360s still expired (READY incomplete at ticks=7452 with the render thread healthy at
@@ -291,6 +303,7 @@ jobs:
         env:
           LIBGL_ALWAYS_SOFTWARE: '1'
           MESA_LOADER_DRIVER_OVERRIDE: llvmpipe
+          OML_E2E_GRAPHICS_API: opengl
           OML_E2E_TIMEOUT: '900'
           OML_E2E_WATCHDOG: '840'
           OML_E2E_GRACE_SECONDS: '720'

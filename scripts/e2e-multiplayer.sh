@@ -151,6 +151,13 @@ for key in onboardAccessibility pauseOnLostFocus skipMultiplayerWarning; do
   mv "${OPTIONS}.tmp" "$OPTIONS"
 done
 printf '%s\n' 'onboardAccessibility:false' 'pauseOnLostFocus:false' 'skipMultiplayerWarning:true' >> "$OPTIONS"
+# See e2e-client.sh: headless CI pins OpenGL because 26.4's Vulkan-first default cannot create a
+# device under llvmpipe/lavapipe.
+if [ -n "${OML_E2E_GRAPHICS_API:-}" ]; then
+  grep -v '^graphicsApi:' "$OPTIONS" > "${OPTIONS}.tmp" || true
+  mv "${OPTIONS}.tmp" "$OPTIONS"
+  echo "graphicsApi:${OML_E2E_GRAPHICS_API}" >> "$OPTIONS"
+fi
 
 CLIENT_STARTED=1
 unset OML_LOG_FILE
