@@ -235,9 +235,10 @@ jobs:
             run/${{ env.OML_GAME_VERSION }}/natives
           key: game-files-${{ env.OML_GAME_VERSION }}-${{ hashFiles('gradle.properties', 'build.gradle.kts') }}
       # No GPU on a runner: Xvfb for the display, and Mesa's software stack. The device this job
-      # actually renders on is lavapipe (Vulkan on the CPU) — the OpenGL path cannot find a GLX
-      # visual here, as the 26.3 green runs already showed. 26.4 only offers lavapipe because the
-      # build passes -Drenderpearl.vulkan.allowcpudevice (see build.gradle.kts).
+      # actually renders on is lavapipe (Vulkan on the CPU). 26.4-snapshot-9 made Vulkan the default
+      # backend; snapshot-8 picked GL or Vulkan at random, which is why no backend is pinned here
+      # anymore. The OpenGL path cannot find a GLX visual on Xvfb either way. 26.4 only offers
+      # lavapipe because the build passes -Drenderpearl.vulkan.allowcpudevice (see build.gradle.kts).
       - name: Headless rendering stack
         run: |
           sudo apt-get update
