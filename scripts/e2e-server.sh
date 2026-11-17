@@ -2,8 +2,8 @@
 # Dedicated-server end-to-end gate (M1 / AC-2 of the loader workspace's development plan).
 #
 # Starts the server exactly the way a player would (Gradle -> OMLBootstrap -> the game), waits for the
-# verification mod's "[OML-E2E] READY" line, stops it gracefully by sending /stop on stdin, and decides
-# on the verdict. Exit code 0 only when the run passed — that is the gate; the RESULT line is why.
+# verification mod's "[OML-E2E] READY" line, lets it stop itself gracefully, and decides on the verdict.
+# Exit code 0 only when the run passed — that is the gate; the RESULT line is why.
 #
 # Env: OML_E2E_TICKS (default 200), OML_E2E_READY_TIMEOUT (240s), OML_E2E_STOP_TIMEOUT (60s),
 #      OML_E2E_LOG (build/e2e-server.log), OML_E2E_WATCHDOG (300s, the in-game watchdog that turns
@@ -11,7 +11,8 @@
 #      OML_E2E_EXPECT_EXTRA (gate self-test: an expectation nothing reports, so a working gate must fail),
 #      OML_E2E_SEED (oml-e2e, the world seed a generated world is created from),
 #      OML_GAME_VERSION (26.3), OML_E2E_OML_VERSION (overrides the SNAPSHOT coordinate for a release gate),
-#      OML_E2E_CONTEXT / OML_E2E_RESULT (evidence paths, default build/e2e-{context,result}-server.json).
+#      OML_E2E_CONTEXT / OML_E2E_RESULT (evidence paths, default build/e2e-{context,result}-server.json),
+#      OML_RUNTIME_JAVA / OML_TEST_JDK_HOME (which JVM the game runs on — see e2e_resolve_runtime_java).
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit
 
@@ -46,6 +47,10 @@ FIFO="$(mktemp -u)"
 mkfifo "$FIFO"
 cleanup() { exec 3>&- 2>/dev/null; rm -f "$FIFO"; }
 . "$(dirname "$0")/e2e-evidence.sh"
+# Both sides run the game on the same JVM as the client gate (see e2e_resolve_runtime_java): a red
+# server gate cannot be attributed to the code or the runtime if the two halves differ.
+e2e_resolve_runtime_java "e2e-server"
+[ -n "${OML_RUNTIME_JAVA:-}" ] && E2E_ARGS+=(-Poml.runtimeJava="$OML_RUNTIME_JAVA")
 e2e_evidence_start server "$LOG"
 trap 'rc=$?; e2e_evidence_finish "$rc"; cleanup' EXIT
 
@@ -72,11 +77,13 @@ until grep -q '\[OML-E2E\] READY' "$LOG" 2>/dev/null; do
   sleep 2
 done
 
-printf '/stop\n' >&3
+# The server stops itself once the mod has printed READY (E2E calls MinecraftServer.halt(false), which
+# is what /stop does), so this only waits. Console input is deliberately unused: Gradle's stdin
+# forwarding fails on Windows with "invalid handle", and the gate then hung here after READY.
 stop_deadline=$((SECONDS + STOP_TIMEOUT))
 while kill -0 "$GRADLE_PID" 2>/dev/null && [ "$SECONDS" -lt "$stop_deadline" ]; do sleep 1; done
 if kill -0 "$GRADLE_PID" 2>/dev/null; then
-  echo "e2e-server: the server did not stop within ${STOP_TIMEOUT}s of /stop"
+  echo "e2e-server: the server did not stop within ${STOP_TIMEOUT}s of READY"
   kill -9 "$GRADLE_PID" 2>/dev/null
   exit 1
 fi

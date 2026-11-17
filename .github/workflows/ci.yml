@@ -54,10 +54,14 @@ jobs:
           repository: OhMyLoader/OhMyLoaderGradle
           ref: ${{ github.event.inputs.plugin_ref || 'main' }}
           path: OhMyLoaderGradle
-      - uses: actions/setup-java@v6
+      # OML's JVM floor is 27.0.2 (Java 27.0.1 carries the Windows stack-probe defect JDK-8394484:
+      # a random 0xC0000005 with no hs_err, fixed by JDK PR 33729). The action fetches the pinned
+      # public release asset and verifies its digest.
+      - name: Install the 27.0.2-internal JDK bundle
+        uses: OhMyLoader/install-oml-jdk@v1
         with:
-          distribution: zulu
-          java-version: '27'
+          url: https://github.com/OhMyLoader/OhMyLoader/releases/download/jdk-27.0.2-internal/bundles-linux-x64.zip
+          sha256: ce2052f923109e165e531c1ceada67e583347a4de757c40db5edcf46fc7270a8
       - uses: mlugg/setup-zig@v2
         with:
           version: 0.17.0
@@ -103,10 +107,14 @@ jobs:
           repository: OhMyLoader/OhMyLoaderGradle
           ref: ${{ github.event.inputs.plugin_ref || 'main' }}
           path: OhMyLoaderGradle
-      - uses: actions/setup-java@v6
+      # OML's JVM floor is 27.0.2 (Java 27.0.1 carries the Windows stack-probe defect JDK-8394484:
+      # a random 0xC0000005 with no hs_err, fixed by JDK PR 33729). The action fetches the pinned
+      # public release asset and verifies its digest.
+      - name: Install the 27.0.2-internal JDK bundle
+        uses: OhMyLoader/install-oml-jdk@v1
         with:
-          distribution: zulu
-          java-version: '27'
+          url: https://github.com/OhMyLoader/OhMyLoader/releases/download/jdk-27.0.2-internal/bundles-linux-x64.zip
+          sha256: ce2052f923109e165e531c1ceada67e583347a4de757c40db5edcf46fc7270a8
       - uses: mlugg/setup-zig@v2
         with:
           version: 0.17.0
@@ -196,10 +204,14 @@ jobs:
           repository: OhMyLoader/OhMyLoaderGradle
           ref: ${{ github.event.inputs.plugin_ref || 'main' }}
           path: OhMyLoaderGradle
-      - uses: actions/setup-java@v6
+      # OML's JVM floor is 27.0.2 (Java 27.0.1 carries the Windows stack-probe defect JDK-8394484:
+      # a random 0xC0000005 with no hs_err, fixed by JDK PR 33729). The action fetches the pinned
+      # public release asset and verifies its digest.
+      - name: Install the 27.0.2-internal JDK bundle
+        uses: OhMyLoader/install-oml-jdk@v1
         with:
-          distribution: zulu
-          java-version: '27'
+          url: https://github.com/OhMyLoader/OhMyLoader/releases/download/jdk-27.0.2-internal/bundles-linux-x64.zip
+          sha256: ce2052f923109e165e531c1ceada67e583347a4de757c40db5edcf46fc7270a8
       - uses: mlugg/setup-zig@v2
         with:
           version: 0.17.0

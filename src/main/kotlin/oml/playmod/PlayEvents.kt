@@ -7,6 +7,7 @@ import org.ohmyloader.api.tick.OMLSide
 import org.ohmyloader.api.tick.OMLTask
 import org.ohmyloader.api26_3.*
 import org.ohmyloader.api26_3.event.Events
+import org.ohmyloader.api26_3.event.OMLSessionEvents
 
 /**
  * What the kit does when the game moves. Every subscription is a reaction a player can see or feel, and a handler
@@ -52,6 +53,18 @@ object PlayEvents {
             }
         }
         Events.PLAYER_LEFT.register { event -> PlayState.forget(event.player) }
+        // A soft reboot suppresses the join/leave pair on purpose (OML's session mask), so the join
+        // handler above never runs again after a reboot — this is where the kit re-does its join
+        // work instead: the keeper node rides the same table it always did, it just needs to be
+        // re-granted to the player the new session holds. RESUMED carries the restore's outcome;
+        // anything other than restored=1 means there is no player back yet to grant to.
+        OMLSessionEvents.RESUMED.register { event ->
+            if (event.outcome != "restored=1") return@register
+            OMLGame.server?.onlinePlayers?.forEach { player ->
+                val granted = player.grantPermissionNode(PlayCommands.KEEPER_NODE)
+                println("[oml_playmod] resumed (${event.outcome}): keeper node re-granted=$granted to ${player.scoreboardName}")
+            }
+        }
         // The kit's own heartbeat. Everything a machine does runs on its block ticker and everything timed runs
         // on the scheduler, so what is left for the world's tick is the one number that has no owner otherwise:
         // how long this world has been up, and who is in it.

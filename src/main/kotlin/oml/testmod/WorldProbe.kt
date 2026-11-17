@@ -222,7 +222,10 @@ object WorldProbe {
      * Where the chunk probe works: a position inside one chunk of the mod's own dimension, which no player
      * ever visits. The flat generator puts one bedrock layer at y=0, so the column above it is air to build in.
      */
-    private val CHUNK_PROBE_POSITION = BlockPos(8, 64, 8)
+    // Far outside the client's spawn view distance: the lifecycle probe must observe a real
+    // unloaded->ticking transition, and a reused save's spawn-area chunks are already loaded by the
+    // time the probe runs (the server gate's own ticket at the old origin used to mask it).
+    private val CHUNK_PROBE_POSITION = BlockPos(8 + 16 * 64, 64, 8 + 16 * 64)
     private const val CHUNK_PROBE_BLOCK = "minecraft:stone"
     private const val CHUNK_TICK_WAIT_LIMIT = 60
     // The integrated server processes released chunks through ChunkMap's unload queue after its
@@ -252,6 +255,14 @@ object WorldProbe {
      */
     private const val CLOCK_SYNC_JUMP = 5000L
     private const val CLOCK_SYNC_WAIT_TICKS = 60
+
+    /**
+     * How long the sync probe waits for the client's own copy to come alive before writing. A client
+     * that is still joining has a clock standing at 0: no packet has told it the time yet, and writing
+     * the jump before that hands the value to a level the client has not built, which then reads back
+     * as "the sync never arrived".
+     */
+    private const val CLOCK_SYNC_READY_TICKS = 200
 
     /** A rule that exists in every vanilla dimension, so the flip-and-restore has a guaranteed subject. */
     private const val KEEP_INVENTORY_RULE = "minecraft:keep_inventory"
@@ -356,6 +367,16 @@ object WorldProbe {
 
     /** Ticks the control damage has been refused for, so a refusal becomes a verdict instead of silence. */
     private var controlWaits = 0
+
+    /**
+     * Ticks a refused driven damage has waited for the game's join gates to open. A rebooted session's
+     * client reports itself loaded before its player's spawn protection has expired, and that gate
+     * answers `hurtServer` with `false` before the hook is reached.
+     */
+    private var hurtWaits = 0
+
+    /** Ticks the sync probe has waited for the client's clock to leave 0, so a silent client reports. */
+    private var clockSyncWaits = 0
 
     /** The player [Events.PLAYER_RESPAWNED] handed out while the respawn drive was armed. */
     private var respawnObservation: ServerPlayer? = null
@@ -800,17 +821,21 @@ object WorldProbe {
     private var goalTicked = 0
 
     /**
-     * Spawns a cow in the declared probe dimension (on the bedrock floor the teleport probe already
-     * uses) and gives it a behavior that can always run: the game must start it and tick it — an
-     * added goal that never runs means the selector never saw the bridge, which is exactly the kind
-     * of silence this API has to answer for.
+     * Spawns a cow next to the player and gives it a behavior that can always run: the game must
+     * start it and tick it — an added goal that never runs means the selector never saw the bridge,
+     * which is exactly the kind of silence this API has to answer for.
+     *
+     * The declared probe dimensions are force-loaded for block ticking but have no player, so their
+     * entities never enter the entity-tick set: a goal there never runs and the cow is eventually
+     * dropped. The player's own chunk is entity-ticking by construction.
      */
     private fun probeEntityGoal(): Boolean {
         val server = OMLGame.server ?: return false
         if (!goalRequested) {
-            if (!chunkReady(server, MOD_DIMENSION, TELEPORT_POSITION)) return false
-            val world = server.levelById(MOD_DIMENSION) ?: return false
-            val cow = world.spawnLivingEntity(COW, TELEPORT_X, TELEPORT_Y, TELEPORT_Z) ?: return false
+            val player = server.onlinePlayers.firstOrNull() ?: return false
+            val spot = player.blockPosition().offset(2, 0, 0)
+            val cow = server.overworld().spawnLivingEntity(COW, spot.x + 0.5, spot.y.toDouble(), spot.z + 0.5)
+                ?: return false
             (cow as? Mob)?.addGoal(0, object : OMLGoal {
                 override fun canUse() = true
                 override fun start() { goalStarted = true }
@@ -825,7 +850,11 @@ object WorldProbe {
         }
         val cow = goalCow ?: return false
         if (cow.isRemoved) {
-            E2E.check("api.entity_goal", false, "the cow left the world before its behavior ran")
+            E2E.check(
+                "api.entity_goal", false,
+                "the cow left the world before its behavior ran " +
+                    "(pos=${cow.position()} alive=${cow.isAlive} health=${cow.health})",
+            )
             return true
         }
         if (goalTicked == 0) return false
@@ -1861,6 +1890,9 @@ object WorldProbe {
         if (chunkPhase == 0) {
             chunkTickingSeen = false
             chunkUnloadedSeen = false
+            // A reused save (the client gate copies the server gate's world) can still carry this
+            // position's ticket from the server run. Clear it so `added` answers for THIS ticket.
+            level.releaseForceLoadedChunk(CHUNK_PROBE_POSITION)
             val added = level.forceLoadChunk(CHUNK_PROBE_POSITION)
             val read = level.isForceLoaded(CHUNK_PROBE_POSITION)
             val listed = target in level.forceLoadedChunkPositions
@@ -2107,8 +2139,22 @@ object WorldProbe {
         val clientInstance = clientManager.instanceOf(clientClock) ?: return false
         val tick = server.tickCount
         if (clockSyncPhase == 0) {
+            // A client that is still joining has a copy standing at 0: nothing has told it the time
+            // yet, and a write delivered before its level ticks is never read back. Waiting for the
+            // copy to come alive keeps the check about the packet, not about the join schedule.
+            val clientNow = clientInstance.totalTicks()
+            if (clientNow == 0L) {
+                if (clockSyncWaits++ < CLOCK_SYNC_READY_TICKS) return false
+                E2E.check(
+                    "api.clock_client_sync",
+                    false,
+                    "the client's clock still reads 0 after $clockSyncWaits ticks; the client never received a time",
+                )
+                clockSyncPhase = 2
+                return true
+            }
             clockSyncPrevious = instance.totalTicks()
-            clockSyncClientBefore = clientInstance.totalTicks()
+            clockSyncClientBefore = clientNow
             // Ahead of *both* copies: whichever one is further along decides the jump, so no copy can
             // reach the target by counting on its own inside the wait window.
             clockSyncTarget = maxOf(clockSyncPrevious, clockSyncClientBefore) + CLOCK_SYNC_JUMP
@@ -3121,7 +3167,10 @@ object WorldProbe {
         // A just-joined player is invulnerable until the client reports its terrain loaded
         // (`ServerPlayer.isInvulnerableTo`), and an invulnerable damage application returns before it
         // reaches the base `hurtServer` the hook sits on — so the drive waits for that window to close
-        // instead of reporting the game's own gate as a missing event.
+        // instead of reporting the game's own gate as a missing event. `hasClientLoaded` flips early in
+        // the join, before every protection of a rebooted session's player has expired, so an
+        // application the game refused on that gate is retried for the budget its rewrite sibling
+        // already gives a refused control damage rather than being read as a missing event.
         if (!clientLoaded(player)) return false
         val level = player.level()
         val source = level.damageSources().generic()
@@ -3136,11 +3185,17 @@ object WorldProbe {
         }
         val healthAfter = player.health
         val seen = hurtObservation
+        // No observation, no application and no health change is the game returning before the hook,
+        // not an event that went missing: the join gate and the spawn protection both answer that way.
+        if (seen == null && !applied && healthAfter == healthBefore && hurtWaits++ < REFUSED_DAMAGE_WAIT_TICKS) {
+            return false
+        }
         E2E.check(
             "event.living_hurt",
             seen != null && seen.first == HURT_AMOUNT && !seen.third && !applied && healthAfter == healthBefore,
             "handler saw amount=${seen?.first} type=${seen?.second} attacker=${seen?.third}; hurtServer returned $applied; " +
-                "health $healthBefore -> $healthAfter in ${player.gameModeName} mode",
+                "health $healthBefore -> $healthAfter in ${player.gameModeName} mode " +
+                "(the game refused the drive for $hurtWaits tick(s))",
         )
         return true
     }

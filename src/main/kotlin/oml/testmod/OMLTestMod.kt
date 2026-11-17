@@ -19,6 +19,7 @@ import org.ohmyloader.api.content.OMLContentProvider
 import org.ohmyloader.api.network.OMLNetworkProvider
 import org.ohmyloader.api.network.OMLNetworkRegistry
 import org.ohmyloader.api26_3.OMLGame
+import org.ohmyloader.api26_3.OMLReboot
 import org.ohmyloader.api26_3.currentScreen
 import org.ohmyloader.api26_3.event.Events
 
@@ -175,13 +176,50 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider, OM
         E2E.hit("content.declared")
     }
 
+    /**
+     * `-Doml.reboot.rounds=N`: spends N-1 sessions on reboots and leaves the last one to the probes.
+     *
+     * <p>One handover cannot tell a fixed cost from a growing one, and a resource that is released
+     * per session only shows up as a trend across several. The property survives the session swap
+     * because system properties belong to the process; counting it down here is what makes the run
+     * end. A round installs no verdict: it has no expectations to meet, and a shutdown hook in a
+     * session that exists only to reboot would report every check as missing.
+     *
+     * @return true when this session is a round and the probes must not register.
+     */
+    private fun rebootStressRound(): Boolean {
+        val rounds = System.getProperty("oml.reboot.rounds")?.toIntOrNull() ?: return false
+        if (rounds <= 1) {
+            System.clearProperty("oml.reboot.rounds")
+            return false
+        }
+        System.setProperty("oml.reboot.rounds", (rounds - 1).toString())
+        println("[oml_testmod] reboot stress: round $rounds reboots after $STRESS_TICKS ticks")
+        var ticks = 0
+        var issued = false
+        Events.CLIENT_TICK.register {
+            if (issued) return@register
+            ticks++
+            if (ticks < STRESS_TICKS) return@register
+            // A round that reboots before the world finishes loading carries no snapshot, and the
+            // point of the stress is the repeated handover, not the empty one.
+            if (OMLGame.client?.level == null) return@register
+            issued = true
+            OMLReboot.restart("stress round $rounds")
+        }
+        return true
+    }
+
     override fun onInitialize(context: ModContext) {
         println("[oml_testmod] initialization complete: id=${context.id} name=${context.name} version=${context.version}")
+
+        if (rebootStressRound()) return
 
         // E2E runs (see E2E): the probes below end in a verdict the caller can fail on. The
         // expectations are declared per side because over half of them can only be observed on one.
         E2E.install()
         WorldProbe.register()
+        RebootProbe.declare()
         E2E.expect("content.declared", "event.tick")
         if (isServerSide() && multiplayer) {
             // The remote client, not an integrated server, owns the play path: assert the join
@@ -203,7 +241,9 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider, OM
                 "content.custom_clock", "content.custom_dimension", "api.chunk_lifecycle",
                 "api.permission_nodes", "api.block_entity_read", "api.block_data_addressing", "api.dimension_teleport",
                 "api.world_spawn_anchor",
-                "api.server_game_rules", "api.world_particles_arguments", "api.entity_equipment", "api.entity_goal",
+                // api.entity_goal is not here: it spawns a cow next to an online player, and a dedicated
+                // server's console never has one.
+                "api.server_game_rules", "api.world_particles_arguments", "api.entity_equipment",
                 "api.server_difficulty", "content.light_level", "datapack.reload",
             )
         } else if (multiplayer) {
@@ -248,7 +288,6 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider, OM
                     "hud.rendered",
                     "gui.open_screen",
                     "event.server_started",
-                    "event.player_joined",
                     "api.server_handle",
                     "api.server_level_lookup",
                     "api.registry_reads",
@@ -320,6 +359,10 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider, OM
                     "event.block_used",
                     "event.item_used",
                 )
+                // The session mask suppresses a handover session's join on purpose — the reboot gate
+                // expects the suppression itself (reboot.join_masked) instead. A plain session's join
+                // is the ordinary event and must fire.
+                if (!RebootProbe.handoverExpected) E2E.expect("event.player_joined")
             }
         }
 
@@ -337,6 +380,7 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider, OM
             // The multiplayer run is a connection test; the singleplayer pass owns the world probes.
             if (E2E.isEnabled && !multiplayer) {
                 WorldProbe.tickClient()
+                RebootProbe.tickClient()
                 probeClientFeatures()
             }
             if (ticks % 200 == 0) {
@@ -644,3 +688,6 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider, OM
     }
 
 }
+
+/** Long enough that a stress round owns a loaded world, so every handover carries a snapshot too. */
+private const val STRESS_TICKS = 200

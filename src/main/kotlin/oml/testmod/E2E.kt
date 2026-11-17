@@ -43,8 +43,14 @@ object E2E {
     /**
      * `oml.e2e=1` — treat this run as an E2E run, so the verdict is enforced through the exit code.
      * Unset, every entry point here stays inert and the mod behaves like a normal one.
+     *
+     * The auto-reboot gate sets `oml.reboot.afterTicks` for the first session only; that session is
+     * the reboot trigger, not the run under test. Keeping its driver inert prevents expectations and
+     * a shutdown-hook verdict from straddling the session boundary (the supervisor clears the
+     * property before the next session, which then runs the real suite).
      */
-    private val enabled = System.getProperty("oml.e2e") != null
+    private val enabled = System.getProperty("oml.e2e") != null &&
+        System.getProperty("oml.reboot.afterTicks") == null
     private val lock = Any()
     private val expected = LinkedHashSet<String>()
     private val observed = LinkedHashMap<String, Pair<Boolean, String>>()
@@ -157,7 +163,12 @@ object E2E {
             "$PREFIX READY ticks=$ticksSeen side=$side" +
                 if (missing.isEmpty()) "" else " incomplete=${missing.size} (${missing.joinToString(",")})",
         )
-        if (side == "client") quitClient()
+        if (side == "client") quitClient() else if (!multiplayer) quitServer()
+        // A multiplayer server must NOT self-quit: its expectations complete the moment the client
+        // finishes the first payload exchange, while the client (software-rendered, per-frame ticks)
+        // is still minutes of frames away from READY — self-quitting here kicked it mid-run with
+        // "Server closed" and failed network.join. The harness /stops this server itself once the
+        // client has exited; the shutdown hook writes the verdict on that graceful stop.
     }
 
     /** `oml.e2e.multiplayer=1`: this run joins the dedicated server the harness started alongside it. */
@@ -237,8 +248,7 @@ object E2E {
     }
 
     /**
-     * Client-side self-quit: nothing outside the process can press the close button, while the
-     * dedicated server is stopped by the harness with `/stop` once it has seen [READY].
+     * Client-side self-quit: nothing outside the process can press the close button.
      *
      * If `stop()` ever fails the fallback prints the verdict and halts itself: `halt` skips shutdown
      * hooks, which is exactly why this path cannot leave the verdict to the hook.
@@ -255,8 +265,26 @@ object E2E {
         }
     }
 
-    /** Test hook: forget every declaration and observation, so each case starts from an empty verdict. */
-    internal fun resetForTests() {
+    /**
+     * Server-side counterpart of [quitClient]. The harness used to send `/stop` on the console once it
+     * saw [READY], but that needs stdin forwarded through Gradle, and on Windows the forward fails
+     * ("invalid handle") — the run then sits in its tick loop until the stop timeout. Asking the server
+     * to stop from inside its own tick is exactly what `/stop` does: `halt(false)` clears the run flag
+     * and the server loop saves, unloads and exits normally.
+     */
+    private fun quitServer() {
+        val graceful = runCatching {
+            val server = OMLGame.server ?: error("no server instance in this process")
+            server.halt(false)
+        }
+        graceful.onFailure {
+            println("$PREFIX graceful stop unavailable (${it.javaClass.name}: ${it.message}); halting after the verdict")
+            it.printStackTrace()
+            reportAndHalt()
+        }
+    }
+
+    /** Test hook: forget every declaration and observation, so each case starts from an empty verdict. */    internal fun resetForTests() {
         synchronized(lock) {
             expected.clear()
             observed.clear()
