@@ -5,10 +5,10 @@ import net.minecraft.client.gui.screens.PauseScreen
 import net.minecraft.client.gui.screens.Screen
 import net.minecraft.client.gui.screens.TitleScreen
 import net.minecraft.client.input.InputWithModifiers
-import org.ohmyloader.api.game.OMLGame
-import org.ohmyloader.api.game.OMLReboot
-import org.ohmyloader.api.game.currentScreen
-import org.ohmyloader.api.game.event.Events
+import org.ohmyloader.api.OMLGame
+import org.ohmyloader.api.OMLReboot
+import org.ohmyloader.api.currentScreen
+import org.ohmyloader.api.event.Events
 
 /**
  * Drives the reboot entry points an acceptance run needs, at the tick the run asked for.

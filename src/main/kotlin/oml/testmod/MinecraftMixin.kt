@@ -1,6 +1,6 @@
 package oml.testmod
 
-import org.ohmyloader.api.hook.*
+import org.ohmyloader.api.core.hook.*
 
 /**
  * Mixin front-end validation on `Minecraft`: HEAD injection, cancelable short-circuiting,

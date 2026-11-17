@@ -24,7 +24,7 @@ object PlayConfig {
     var galleryMarker: String = "oml_playmod:chime"
         private set
 
-    fun load(context: org.ohmyloader.api.ModContext) {
+    fun load(context: org.ohmyloader.api.core.ModContext) {
         val config = context.config
         config.define("pad_charge", 3, "How many launches one pad holds before it has to rearm.")
         config.define("pad_launch", 1.4, "How hard a charged pad throws whoever steps on it.")

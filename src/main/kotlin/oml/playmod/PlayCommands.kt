@@ -2,20 +2,20 @@ package oml.playmod
 
 import net.minecraft.server.level.ServerLevel
 import net.minecraft.server.level.ServerPlayer
-import org.ohmyloader.api.command.OMLArgumentType
-import org.ohmyloader.api.command.OMLCommandRegistry
-import org.ohmyloader.api.command.OMLCommandSource
-import org.ohmyloader.api.game.*
-import org.ohmyloader.api.game.raycast
-import org.ohmyloader.api.game.foodLevel
-import org.ohmyloader.api.game.saturation
-import org.ohmyloader.api.game.xpLevel
-import org.ohmyloader.api.game.xpProgress
-import org.ohmyloader.api.game.allowFlight
-import org.ohmyloader.api.game.isFlying
-import org.ohmyloader.api.game.invulnerable
-import org.ohmyloader.api.game.explode
-import org.ohmyloader.api.game.OMLBossBar
+import org.ohmyloader.api.core.command.OMLArgumentType
+import org.ohmyloader.api.core.command.OMLCommandRegistry
+import org.ohmyloader.api.core.command.OMLCommandSource
+import org.ohmyloader.api.*
+import org.ohmyloader.api.raycast
+import org.ohmyloader.api.foodLevel
+import org.ohmyloader.api.saturation
+import org.ohmyloader.api.xpLevel
+import org.ohmyloader.api.xpProgress
+import org.ohmyloader.api.allowFlight
+import org.ohmyloader.api.isFlying
+import org.ohmyloader.api.invulnerable
+import org.ohmyloader.api.explode
+import org.ohmyloader.api.OMLBossBar
 import kotlin.math.abs
 
 /**

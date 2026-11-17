@@ -1,9 +1,9 @@
 package oml.testmod
 
-import org.ohmyloader.api.inject.RuleSet
-import org.ohmyloader.api.inject.RuleSetProvider
-import org.ohmyloader.api.inject.RuleSource
-import org.ohmyloader.api.inject.injection
+import org.ohmyloader.api.core.inject.RuleSet
+import org.ohmyloader.api.core.inject.RuleSetProvider
+import org.ohmyloader.api.core.inject.RuleSource
+import org.ohmyloader.api.core.inject.injection
 
 /**
  * A hand-written rule set from a mod: proves that rules can be handed to the loader **without
@@ -59,7 +59,7 @@ object TestRules : RuleSetProvider {
             // the merge (owner is filled in from the target class automatically)
             method("getFramerateLimit", desc = "()I") {
                 atHead {
-                    mergedCall("onFrameLimitRead", "(Lorg/ohmyloader/api/hook/HookContext;)V")
+                    mergedCall("onFrameLimitRead", "(Lorg/ohmyloader/api/core/hook/HookContext;)V")
                 }
                 require(1)
             }

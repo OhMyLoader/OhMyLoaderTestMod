@@ -7,21 +7,21 @@ import net.minecraft.core.registries.BuiltInRegistries
 import net.minecraft.core.registries.Registries
 import net.minecraft.resources.Identifier
 import net.minecraft.resources.ResourceKey
-import org.ohmyloader.api.Mod
-import org.ohmyloader.api.ModContext
-import org.ohmyloader.api.OMLModInitializer
-import org.ohmyloader.api.client.OMLKeyBindingProvider
-import org.ohmyloader.api.client.OMLKeyBindingRegistry
-import org.ohmyloader.api.command.OMLCommandProvider
-import org.ohmyloader.api.command.OMLCommandRegistry
-import org.ohmyloader.api.content.ContentRegistry
-import org.ohmyloader.api.content.OMLContentProvider
-import org.ohmyloader.api.network.OMLNetworkProvider
-import org.ohmyloader.api.network.OMLNetworkRegistry
-import org.ohmyloader.api.game.OMLGame
-import org.ohmyloader.api.game.OMLReboot
-import org.ohmyloader.api.game.currentScreen
-import org.ohmyloader.api.game.event.Events
+import org.ohmyloader.api.core.Mod
+import org.ohmyloader.api.core.ModContext
+import org.ohmyloader.api.core.OMLModInitializer
+import org.ohmyloader.api.core.client.OMLKeyBindingProvider
+import org.ohmyloader.api.core.client.OMLKeyBindingRegistry
+import org.ohmyloader.api.core.command.OMLCommandProvider
+import org.ohmyloader.api.core.command.OMLCommandRegistry
+import org.ohmyloader.api.core.content.ContentRegistry
+import org.ohmyloader.api.core.content.OMLContentProvider
+import org.ohmyloader.api.core.network.OMLNetworkProvider
+import org.ohmyloader.api.core.network.OMLNetworkRegistry
+import org.ohmyloader.api.OMLGame
+import org.ohmyloader.api.OMLReboot
+import org.ohmyloader.api.currentScreen
+import org.ohmyloader.api.event.Events
 
 /**
  * The first end-to-end test mod written from a mod author's perspective using OML.

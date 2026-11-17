@@ -1,6 +1,6 @@
 package oml.testmod;
 
-import org.ohmyloader.api.hook.*;
+import org.ohmyloader.api.core.hook.*;
 
 /**
  * Class-merging demo: this mixin's fields/methods are physically merged into

@@ -1,6 +1,6 @@
 package oml.testmod
 
-import org.ohmyloader.api.network.*
+import org.ohmyloader.api.core.network.*
 import kotlin.random.Random
 
 /**

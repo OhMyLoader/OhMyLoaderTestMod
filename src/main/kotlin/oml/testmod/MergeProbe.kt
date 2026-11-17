@@ -3,7 +3,7 @@ package oml.testmod
 import net.minecraft.client.Minecraft
 import net.minecraft.resources.Identifier
 import net.minecraft.server.packs.resources.ResourceManager
-import org.ohmyloader.api.game.OMLGame
+import org.ohmyloader.api.OMLGame
 import java.io.IOException
 import java.lang.invoke.MethodHandles
 import java.lang.reflect.Modifier

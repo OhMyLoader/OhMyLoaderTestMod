@@ -1,7 +1,7 @@
 package oml.testmod;
 
-import org.ohmyloader.api.hook.FieldAccess;
-import org.ohmyloader.api.hook.Hooked;
+import org.ohmyloader.api.core.hook.FieldAccess;
+import org.ohmyloader.api.core.hook.Hooked;
 
 
 /**

@@ -1,6 +1,6 @@
 package oml.testmod
 
-import org.ohmyloader.api.hook.*
+import org.ohmyloader.api.core.hook.*
 
 /**
  * The frame-rate-limit half of the Mixin front-end validation, split onto its own target class.

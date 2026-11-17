@@ -1,16 +1,16 @@
 package oml.playmod
 
-import org.ohmyloader.api.Mod
-import org.ohmyloader.api.ModContext
-import org.ohmyloader.api.OMLModInitializer
-import org.ohmyloader.api.client.OMLKeyBindingProvider
-import org.ohmyloader.api.client.OMLKeyBindingRegistry
-import org.ohmyloader.api.command.OMLCommandProvider
-import org.ohmyloader.api.command.OMLCommandRegistry
-import org.ohmyloader.api.content.ContentRegistry
-import org.ohmyloader.api.content.OMLContentProvider
-import org.ohmyloader.api.network.OMLNetworkProvider
-import org.ohmyloader.api.network.OMLNetworkRegistry
+import org.ohmyloader.api.core.Mod
+import org.ohmyloader.api.core.ModContext
+import org.ohmyloader.api.core.OMLModInitializer
+import org.ohmyloader.api.core.client.OMLKeyBindingProvider
+import org.ohmyloader.api.core.client.OMLKeyBindingRegistry
+import org.ohmyloader.api.core.command.OMLCommandProvider
+import org.ohmyloader.api.core.command.OMLCommandRegistry
+import org.ohmyloader.api.core.content.ContentRegistry
+import org.ohmyloader.api.core.content.OMLContentProvider
+import org.ohmyloader.api.core.network.OMLNetworkProvider
+import org.ohmyloader.api.core.network.OMLNetworkRegistry
 
 /**
  * A mod written the way a player would use one: mine the ore, smelt it, craft a floor, a pad and a waystone,

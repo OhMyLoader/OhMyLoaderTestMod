@@ -2,22 +2,22 @@ package oml.techmod
 
 import net.minecraft.core.BlockPos
 import net.minecraft.world.entity.player.Player
-import org.ohmyloader.api.Mod
-import org.ohmyloader.api.ModContext
-import org.ohmyloader.api.OMLModInitializer
-import org.ohmyloader.api.command.OMLArgumentType
-import org.ohmyloader.api.command.OMLCommandProvider
-import org.ohmyloader.api.command.OMLCommandRegistry
-import org.ohmyloader.api.content.ContentRegistry
-import org.ohmyloader.api.content.OMLContentProvider
-import org.ohmyloader.api.content.OMLDataItemStack
-import org.ohmyloader.api.game.blockDataAt
-import org.ohmyloader.api.game.giveItem
-import org.ohmyloader.api.game.itemIn
-import org.ohmyloader.api.game.itemId
-import org.ohmyloader.api.game.remove
-import org.ohmyloader.api.game.sendSystemMessage
-import org.ohmyloader.api.game.serverLevel
+import org.ohmyloader.api.core.Mod
+import org.ohmyloader.api.core.ModContext
+import org.ohmyloader.api.core.OMLModInitializer
+import org.ohmyloader.api.core.command.OMLArgumentType
+import org.ohmyloader.api.core.command.OMLCommandProvider
+import org.ohmyloader.api.core.command.OMLCommandRegistry
+import org.ohmyloader.api.core.content.ContentRegistry
+import org.ohmyloader.api.core.content.OMLContentProvider
+import org.ohmyloader.api.core.content.OMLDataItemStack
+import org.ohmyloader.api.blockDataAt
+import org.ohmyloader.api.giveItem
+import org.ohmyloader.api.itemIn
+import org.ohmyloader.api.itemId
+import org.ohmyloader.api.remove
+import org.ohmyloader.api.sendSystemMessage
+import org.ohmyloader.api.serverLevel
 
 /**
  * The reference technology mod: the sample that has to stay inside the official API surface — the

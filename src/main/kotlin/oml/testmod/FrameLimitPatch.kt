@@ -1,7 +1,7 @@
 package oml.testmod
 
-import org.ohmyloader.api.hook.HookContext
-import org.ohmyloader.api.hook.Extra
+import org.ohmyloader.api.core.hook.HookContext
+import org.ohmyloader.api.core.hook.Extra
 
 /**
  * A member merged into `Minecraft` by [TestRules]. This class is **never loaded** — the loader only

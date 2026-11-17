@@ -43,15 +43,15 @@ import oml.testmod.WorldProbe.chunkReady
 import oml.testmod.WorldProbe.driveHurtRewrite
 import oml.testmod.WorldProbe.guard
 import oml.testmod.WorldProbe.probeWeather
-import org.ohmyloader.api.content.OMLBlockDataCarrier
-import org.ohmyloader.api.content.OMLDataItemStack
-import org.ohmyloader.api.tick.OMLScheduler
-import org.ohmyloader.api.tick.OMLSide
-import org.ohmyloader.api.tick.OMLTask
-import org.ohmyloader.api.game.*
-import org.ohmyloader.api.game.event.BlockUsedEvent
-import org.ohmyloader.api.game.event.Events
-import org.ohmyloader.api.game.event.ItemUsedEvent
+import org.ohmyloader.api.core.content.OMLBlockDataCarrier
+import org.ohmyloader.api.core.content.OMLDataItemStack
+import org.ohmyloader.api.core.tick.OMLScheduler
+import org.ohmyloader.api.core.tick.OMLSide
+import org.ohmyloader.api.core.tick.OMLTask
+import org.ohmyloader.api.*
+import org.ohmyloader.api.event.BlockUsedEvent
+import org.ohmyloader.api.event.Events
+import org.ohmyloader.api.event.ItemUsedEvent
 import java.util.*
 
 /**

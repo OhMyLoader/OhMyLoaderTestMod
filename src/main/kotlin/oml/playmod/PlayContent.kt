@@ -1,10 +1,10 @@
 package oml.playmod
 
 import net.minecraft.core.BlockPos
-import org.ohmyloader.api.content.ContentRegistry
+import org.ohmyloader.api.core.content.ContentRegistry
 
 import net.minecraft.world.entity.LivingEntity
-import org.ohmyloader.api.game.*
+import org.ohmyloader.api.*
 
 /**
  * The whole of what the kit puts into the world, declared once at initialization. Mining, crafting, a machine
