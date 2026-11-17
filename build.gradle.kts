@@ -68,6 +68,17 @@ providers.gradleProperty("oml.reboot.afterTicks").orNull?.let {
     oml.extraJvmArgs.add("-Doml.reboot.afterTicks=$it")
 }
 
+// Which door the acceptance run goes through: `api` (default), `command` (`/oml reload`), `ui`
+// (the pause menu's Mods button) or `title` (the same buttons on the title screen).
+providers.gradleProperty("oml.reboot.via").orNull?.let {
+    oml.extraJvmArgs.add("-Doml.reboot.via=$it")
+}
+
+// Exercises the loader's process-restart fallback without waiting for a native pin to appear.
+providers.gradleProperty("oml.canary.forceRefuse").orNull?.let {
+    oml.extraJvmArgs.add("-Doml.canary.forceRefuse=$it")
+}
+
 // The loader's own phase diagnostics (see Diagnostics): startup scans, rule compilation,
 // class-load phases. `-Poml.diagnostics=1` turns them on for a run.
 providers.gradleProperty("oml.diagnostics").orNull?.let { oml.diagnostics.set(it) }

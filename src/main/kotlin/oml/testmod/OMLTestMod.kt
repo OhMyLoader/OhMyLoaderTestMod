@@ -220,6 +220,7 @@ class OMLTestMod : OMLModInitializer, OMLContentProvider, OMLCommandProvider, OM
         E2E.install()
         WorldProbe.register()
         RebootProbe.declare()
+        RebootTrigger.install()
         E2E.expect("content.declared", "event.tick")
         if (isServerSide() && multiplayer) {
             // The remote client, not an integrated server, owns the play path: assert the join

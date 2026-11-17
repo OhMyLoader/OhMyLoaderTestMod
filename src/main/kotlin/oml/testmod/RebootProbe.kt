@@ -36,6 +36,10 @@ object RebootProbe {
     /** Whether this session is the receiving half of a handover; without one there is nothing to report. */
     private var declared = false
 
+    /** Whether the session that retired did so from the main menu, and its check was declared. */
+    private var titleDeclared = false
+    private var titleSettled = false
+
     /** Whether this session must report the handover checks (see [OMLTestMod]'s join expectation). */
     val handoverExpected: Boolean get() = declared
 
@@ -76,6 +80,40 @@ object RebootProbe {
     }
 
     /**
+     * The main-menu variant: there is no snapshot (and therefore no join) to report, so the check
+     * is declared as soon as this session learns it is one, and reports once the curtain is gone.
+     * The whole point is that the path has no world: no save opened, no player placed, no join
+     * masked — and the title screen is what the player is left looking at.
+     */
+    private fun tickTitleReboot() {
+        if (!titleDeclared && RebootRestore.titleOnly) {
+            titleDeclared = true
+            E2E.expect("reboot.title_returned")
+            println("[oml_testmod] main-menu reboot detected: outcome=${RebootRestore.outcome}")
+        }
+        if (!titleDeclared || titleSettled) return
+        if (RebootRestore.state != RebootRestore.State.DONE) return
+        titleSettled = true
+        val client = OMLGame.client
+        val screen = client?.currentScreen
+        // The Mods screen is a legitimate landing: a reload started from it reopens it by design.
+        val atMainMenu = screen is net.minecraft.client.gui.screens.TitleScreen ||
+            screen?.javaClass?.simpleName == "OMLModsScreen"
+        E2E.check(
+            "reboot.title_returned",
+            RebootRestore.outcome == "title=1" && !RebootRestore.transitionActive() &&
+                client?.level == null && atMainMenu,
+            "outcome=${RebootRestore.outcome} screen=${screen?.javaClass?.simpleName ?: "null"} " +
+                "world=${if (client?.level != null) "loaded" else "none"} " +
+                "transition=${RebootRestore.overlayTrace()}",
+        )
+        println(
+            "[oml_testmod] main-menu reboot: outcome=${RebootRestore.outcome} " +
+                "screen=${screen?.javaClass?.simpleName ?: "null"}",
+        )
+    }
+
+    /**
      * Reports once, when the restore state machine has finished — success or failure.
      *
      * <p>Gated on [declared], not on the state machine: a session that inherited no snapshot still
@@ -84,7 +122,9 @@ object RebootProbe {
      * behind.
      */
     fun tickClient() {
-        if (!E2E.isEnabled || settled || !declared) return
+        if (!E2E.isEnabled) return
+        tickTitleReboot()
+        if (settled || !declared) return
         if (RebootRestore.state != RebootRestore.State.DONE) return
         settled = true
         val trace = OMLReboot.leaseTrace()
@@ -103,10 +143,13 @@ object RebootProbe {
             RebootRestore.outcome == "restored=1",
             "${RebootRestore.outcome} for '${RebootRestore.describe}'",
         )
+        val screen = OMLGame.client?.currentScreen
         E2E.check(
             "reboot.curtain_lifted",
-            !RebootRestore.transitionActive() && OMLGame.client?.currentScreen == null,
-            "the transition is still covering the frame: ${RebootRestore.overlayTrace()}",
+            !RebootRestore.transitionActive() &&
+                (screen == null || screen.javaClass.simpleName == "OMLModsScreen"),
+            "the transition is still covering the frame: ${RebootRestore.overlayTrace()} " +
+                "(screen=${screen?.javaClass?.simpleName ?: "null"})",
         )
         // The lease switch and the adoption must agree: opting in and getting a fresh window is the
         // failure this gate exists for, and so is adopting while the switch is off.
