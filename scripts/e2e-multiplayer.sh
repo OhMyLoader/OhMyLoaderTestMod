@@ -146,20 +146,13 @@ done
 OPTIONS="run/client/options.txt"
 mkdir -p run/client
 touch "$OPTIONS"
-for key in onboardAccessibility pauseOnLostFocus skipMultiplayerWarning; do
+# See e2e-client.sh: a pinned `preferredGraphicsBackend` left by an earlier experiment is dropped,
+# because the gate owns this file and the default order is the one that finds lavapipe.
+for key in onboardAccessibility pauseOnLostFocus skipMultiplayerWarning preferredGraphicsBackend; do
   grep -v "^${key}:" "$OPTIONS" > "${OPTIONS}.tmp" || true
   mv "${OPTIONS}.tmp" "$OPTIONS"
 done
 printf '%s\n' 'onboardAccessibility:false' 'pauseOnLostFocus:false' 'skipMultiplayerWarning:true' >> "$OPTIONS"
-# See e2e-client.sh: headless CI pins OpenGL because 26.4's Vulkan-first default cannot create a
-# device under llvmpipe/lavapipe. The storage key is `preferredGraphicsBackend`.
-if [ -n "${OML_E2E_GRAPHICS_API:-}" ]; then
-  for key in preferredGraphicsBackend graphicsApi; do
-    grep -v "^${key}:" "$OPTIONS" > "${OPTIONS}.tmp" || true
-    mv "${OPTIONS}.tmp" "$OPTIONS"
-  done
-  echo "preferredGraphicsBackend:${OML_E2E_GRAPHICS_API}" >> "$OPTIONS"
-fi
 
 CLIENT_STARTED=1
 unset OML_LOG_FILE

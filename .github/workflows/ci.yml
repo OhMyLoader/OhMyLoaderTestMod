@@ -234,8 +234,10 @@ jobs:
             run/${{ env.OML_GAME_VERSION }}/libraries
             run/${{ env.OML_GAME_VERSION }}/natives
           key: game-files-${{ env.OML_GAME_VERSION }}-${{ hashFiles('gradle.properties', 'build.gradle.kts') }}
-      # No GPU on a runner: Xvfb for the display, and Mesa's software OpenGL (llvmpipe). 26.4 prefers
-      # Vulkan, which has no usable device here; the gate pins OpenGL via OML_E2E_GRAPHICS_API.
+      # No GPU on a runner: Xvfb for the display, and Mesa's software stack. The device this job
+      # actually renders on is lavapipe (Vulkan on the CPU) — the OpenGL path cannot find a GLX
+      # visual here, as the 26.3 green runs already showed. 26.4 only offers lavapipe because the
+      # build passes -Drenderpearl.vulkan.allowcpudevice (see build.gradle.kts).
       - name: Headless rendering stack
         run: |
           sudo apt-get update
@@ -254,7 +256,6 @@ jobs:
         env:
           LIBGL_ALWAYS_SOFTWARE: '1'
           MESA_LOADER_DRIVER_OVERRIDE: llvmpipe
-          OML_E2E_GRAPHICS_API: opengl
           OML_E2E_EXPECT_EXTRA: gate.self-test.never-reported
           OML_E2E_NO_JOIN: '1'
           OML_E2E_TIMEOUT: '900'
@@ -280,7 +281,6 @@ jobs:
         env:
           LIBGL_ALWAYS_SOFTWARE: '1'
           MESA_LOADER_DRIVER_OVERRIDE: llvmpipe
-          OML_E2E_GRAPHICS_API: opengl
           # llvmpipe/lavapipe: booting to the title screen and loading the world take minutes, and
           # the grace clock runs from JVM start — the 120s local-GPU default expires mid-join.
           # 360s still expired (READY incomplete at ticks=7452 with the render thread healthy at
@@ -303,7 +303,6 @@ jobs:
         env:
           LIBGL_ALWAYS_SOFTWARE: '1'
           MESA_LOADER_DRIVER_OVERRIDE: llvmpipe
-          OML_E2E_GRAPHICS_API: opengl
           OML_E2E_TIMEOUT: '900'
           OML_E2E_WATCHDOG: '840'
           OML_E2E_GRACE_SECONDS: '720'

@@ -64,6 +64,11 @@ providers.gradleProperty("oml.e2e.ticks").orNull?.let { ticks ->
     oml.extraJvmArgs.addAll(e2e)
 }
 
+// A CI runner has no GPU, so Mesa's lavapipe — a CPU Vulkan device — is the only renderer there.
+// renderpearl 26.4 skips CPU devices unless this switch is set; the 26.3 client gates ran green on
+// lavapipe, so setting it restores that path. A real GPU is still preferred when one is present.
+oml.extraJvmArgs.add("-Drenderpearl.vulkan.allowcpudevice=true")
+
 // Ask OML to mirror its console output into a file (see OMLCore.installLogFile); a run that uploads
 // the log as an artifact does not have to hope the launcher kept stdout anywhere.
 providers.gradleProperty("oml.log.file").orNull?.let { oml.extraJvmArgs.add("-Doml.log.file=$it") }

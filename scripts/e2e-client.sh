@@ -81,23 +81,14 @@ fi
 OPTIONS="run/client/options.txt"
 mkdir -p run/client
 touch "$OPTIONS"
-for key in onboardAccessibility pauseOnLostFocus; do
+# `preferredGraphicsBackend` is dropped too: a run from an earlier experiment may have pinned a
+# backend that cannot create a device here, and the gate owns this file's renderer choice.
+for key in onboardAccessibility pauseOnLostFocus preferredGraphicsBackend; do
   grep -v "^${key}:" "$OPTIONS" > "${OPTIONS}.tmp" || true
   mv "${OPTIONS}.tmp" "$OPTIONS"
 done
 echo 'onboardAccessibility:false' >> "$OPTIONS"
 echo 'pauseOnLostFocus:false' >> "$OPTIONS"
-# OML_E2E_GRAPHICS_API=opengl|vulkan|default pins the renderer. Headless CI has no Vulkan device it
-# can use (26.4 prefers Vulkan), so the workflow runs this gate on OpenGL — the path the 26.3 gates
-# used on the same runner. The options.txt key is the option's storage name,
-# `preferredGraphicsBackend` (NOT its translation key `options.graphicsApi`).
-if [ -n "${OML_E2E_GRAPHICS_API:-}" ]; then
-  for key in preferredGraphicsBackend graphicsApi; do
-    grep -v "^${key}:" "$OPTIONS" > "${OPTIONS}.tmp" || true
-    mv "${OPTIONS}.tmp" "$OPTIONS"
-  done
-  echo "preferredGraphicsBackend:${OML_E2E_GRAPHICS_API}" >> "$OPTIONS"
-fi
 
 E2E_ARGS=(-Poml.e2e.ticks="$TICKS" -Poml.e2e.timeoutSeconds="$WATCHDOG")
 [ -n "${OML_E2E_OML_VERSION:-}" ] && E2E_ARGS+=(-Poml_version="$OML_E2E_OML_VERSION")
