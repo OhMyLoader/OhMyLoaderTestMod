@@ -24,4 +24,4 @@ DISPLAY=:0 ./scripts/e2e-client.sh
 
 ## License
 
-Licensed under AGPL-3.0.
+Licensed under AGPL-3.0-or-later.
