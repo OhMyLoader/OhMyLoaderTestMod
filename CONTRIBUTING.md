@@ -16,7 +16,6 @@ release.
 
 - JDK 27. CI uses the Zulu distribution.
 - The Gradle wrapper in this repository (Gradle 9.9.1).
-- Zig 0.17.0 when publishing the loader from a sibling checkout.
 - A sibling `OhMyLoader` and `OhMyLoaderGradle` checkout.
 - Linux with Xvfb, Mesa, and OpenAL for the CI-shaped E2E gates. A desktop display is enough for
   `runClient`; the scripts use `xvfb-run` for the client gates.
@@ -84,12 +83,9 @@ This repository has no release tag and publishes no Maven artifact.
 
 ## Security
 
-Do not report a vulnerability in a public issue. Use GitHub's private vulnerability reporting for this
-repository; include the affected version or commit, reproduction steps, and impact. If private reporting
-is unavailable, contact the maintainer through GitHub before public disclosure.
+Report vulnerabilities privately; the organization-wide policy lives in the
+[`.github` repository](https://github.com/OhMyLoader/.github/blob/main/SECURITY.md) and applies here.
 
 ## License
 
-The project is licensed under AGPL-3.0. By submitting a contribution, you confirm that you have the right
-to license it under AGPL-3.0. No CLA or `Signed-off-by` is required. Do not submit code with an
-incompatible license.
+The project is licensed under AGPL-3.0.
