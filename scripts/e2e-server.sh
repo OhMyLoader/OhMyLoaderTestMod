@@ -60,7 +60,7 @@ trap 'rc=$?; e2e_evidence_finish "$rc"; cleanup' EXIT
 # /stop we send, and opening a FIFO this way cannot block.
 exec 3<>"$FIFO"
 
-./gradlew --no-daemon runServer "${E2E_ARGS[@]}" --console=plain <"$FIFO" >"$LOG" 2>&1 &
+./gradlew --no-daemon runServer --refresh-dependencies "${E2E_ARGS[@]}" --console=plain <"$FIFO" >"$LOG" 2>&1 &
 GRADLE_PID=$!
 
 deadline=$((SECONDS + READY_TIMEOUT))

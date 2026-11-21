@@ -123,7 +123,7 @@ SERVER_ARGS=(
 [ -n "${OML_E2E_OML_VERSION:-}" ] && SERVER_ARGS+=(-Poml_version="$OML_E2E_OML_VERSION")
 
 exec 3<>"$FIFO"
-./gradlew --no-daemon runServer "${SERVER_ARGS[@]}" --console=plain <"$FIFO" >"$SERVER_LOG" 2>&1 &
+./gradlew --no-daemon runServer --refresh-dependencies "${SERVER_ARGS[@]}" --console=plain <"$FIFO" >"$SERVER_LOG" 2>&1 &
 SERVER_PID=$!
 
 deadline=$((SECONDS + READY_TIMEOUT))
@@ -170,7 +170,7 @@ CLIENT_ARGS=(
 
 LIBGL_ALWAYS_SOFTWARE=1 MESA_LOADER_DRIVER_OVERRIDE=llvmpipe \
   timeout -s KILL "$TIMEOUT" xvfb-run -a -s "-screen 0 1280x720x24" \
-  ./gradlew --no-daemon runClient "${CLIENT_ARGS[@]}" --console=plain >"$CLIENT_LOG" 2>&1
+  ./gradlew --no-daemon runClient --refresh-dependencies "${CLIENT_ARGS[@]}" --console=plain >"$CLIENT_LOG" 2>&1
 CLIENT_RC=$?
 
 if [ "$CLIENT_RC" -eq 137 ]; then

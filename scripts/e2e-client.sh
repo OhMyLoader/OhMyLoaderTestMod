@@ -105,7 +105,7 @@ fi
 [ -n "${OML_LOG_FILE:-}" ] && E2E_ARGS+=(-Poml.log.file="$OML_LOG_FILE")
 
 timeout -s KILL "$TIMEOUT" \
-  ./gradlew --no-daemon runClient "${E2E_ARGS[@]}" --console=plain >"$LOG" 2>&1
+  ./gradlew --no-daemon runClient --refresh-dependencies "${E2E_ARGS[@]}" --console=plain >"$LOG" 2>&1
 GRADLE_RC=$?
 
 grep -E '\[OML-E2E\] (FAILED|READY|RESULT)' "$LOG" || true

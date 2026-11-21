@@ -131,7 +131,7 @@ jobs:
             run/${{ env.OML_GAME_VERSION }}/minecraft
             run/${{ env.OML_GAME_VERSION }}/libraries
             run/${{ env.OML_GAME_VERSION }}/natives
-          key: game-files-${{ env.OML_GAME_VERSION }}-${{ hashFiles('gradle.properties', 'build.gradle.kts') }}
+          key: game-files-${{ env.OML_GAME_VERSION }}-${{ hashFiles('gradle.properties', 'build.gradle.kts', 'OhMyLoader/native/oml-native/src/**') }}
       - run: ./scripts/check-oml-version.sh
       - run: ./gradlew -p OhMyLoader publishToMavenLocal
       - run: ./gradlew -p OhMyLoaderGradle publishToMavenLocal
@@ -233,7 +233,7 @@ jobs:
             run/${{ env.OML_GAME_VERSION }}/minecraft
             run/${{ env.OML_GAME_VERSION }}/libraries
             run/${{ env.OML_GAME_VERSION }}/natives
-          key: game-files-${{ env.OML_GAME_VERSION }}-${{ hashFiles('gradle.properties', 'build.gradle.kts') }}
+          key: game-files-${{ env.OML_GAME_VERSION }}-${{ hashFiles('gradle.properties', 'build.gradle.kts', 'OhMyLoader/native/oml-native/src/**') }}
       # No GPU on a runner: Xvfb for the display, and Mesa's software stack. The device this job
       # actually renders on is lavapipe (Vulkan on the CPU). 26.4-snapshot-9 made Vulkan the default
       # backend; snapshot-8 picked GL or Vulkan at random, which is why no backend is pinned here
